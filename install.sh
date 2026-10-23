@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installer for FLY-transcriber.
 #
-#   curl -LsSf https://raw.githubusercontent.com/tuomasharkonen-ux/FLY-transcriber/main/install.sh | sh
+#   curl -LsSf https://raw.githubusercontent.com/mokulawa/FLY-transcriber/main/install.sh | sh
 #
 # Installs uv (if missing), ownscribe and the app (which brings its own ffmpeg),
 # the speaker model (no HuggingFace account needed) and the speech models, then
@@ -30,7 +30,7 @@ set -eu
 # and the install would stop silently halfway. Needs no Homebrew and no git
 # (on a fresh Mac, git is a stub that asks to install the developer tools).
 
-REPO="${FLY_REPO:-https://github.com/tuomasharkonen-ux/FLY-transcriber}"
+REPO="${FLY_REPO:-https://github.com/mokulawa/FLY-transcriber}"
 LABEL="io.github.fly-transcriber"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 BIN_DIR="$HOME/.local/bin"
@@ -46,7 +46,9 @@ MLX_WHISPER="mlx-whisper==0.4.3"
 
 DATA_DIR="$HOME/.local/share/fly-transcriber"
 MODEL_DIR="$DATA_DIR/models/pyannote/speaker-diarization-community-1"
-MODEL_URL="${FLY_MODEL_URL:-$REPO/releases/download/speaker-model-v1/speaker-diarization-community-1.tar.gz}"
+# The speaker model is published only on the original repo's releases, not on
+# this fork's.
+MODEL_URL="${FLY_MODEL_URL:-https://github.com/tuomasharkonen-ux/FLY-transcriber/releases/download/speaker-model-v1/speaker-diarization-community-1.tar.gz}"
 # pyannote/speaker-diarization-community-1 (CC-BY-4.0), as packaged by
 # scripts/package_speaker_model.sh.
 MODEL_SHA256="5ce2bfa9a938dc132cec1172592d65173cbb8f444ea1e4133f10f9391de155be  config.yaml
@@ -462,7 +464,7 @@ cat <<'EOF'
 You can close this window now.
 
 To uninstall FLY later, run:
-  curl -LsSf https://raw.githubusercontent.com/tuomasharkonen-ux/FLY-transcriber/main/install.sh | sh -s -- --uninstall
+  curl -LsSf https://raw.githubusercontent.com/mokulawa/FLY-transcriber/main/install.sh | sh -s -- --uninstall
 EOF
 }
 

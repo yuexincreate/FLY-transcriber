@@ -1,6 +1,6 @@
 [project]
 name = "fly-transcriber"
-version = "0.7.3"
+version = "0.7.4"
 description = "Local, private meeting recorder for macOS: speaker-labelled transcripts saved into your projects for your AI agent."
 readme = "README.md"
 authors = [
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/tuomasharkonen-ux/FLY-transcriber"
+Repository = "https://github.com/mokulawa/FLY-transcriber"
 
 [project.scripts]
 fly-transcriber = "fly_transcriber.app:main"

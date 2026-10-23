@@ -55,7 +55,7 @@ up, while your own agent knows the project and runs a stronger model.
 Run this in your terminal:
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/tuomasharkonen-ux/FLY-transcriber/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/mokulawa/FLY-transcriber/main/install.sh | sh
 ```
 
 It takes 5 to 20 minutes, mostly a one-time download of the speech models
@@ -74,7 +74,7 @@ sits in the menubar. No accounts or tokens are needed. If the script ends with
    [MLX Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper),
    as `uv` tools on Python 3.12.
 2. The FLY app, as a `uv` tool, from the latest
-   [release](https://github.com/tuomasharkonen-ux/FLY-transcriber/releases).
+   [release](https://github.com/mokulawa/FLY-transcriber/releases).
    It brings its own `ffmpeg`.
 3. The speaker model (30 MB, checksum-verified) into
    `~/.local/share/fly-transcriber/models/`.
@@ -168,7 +168,7 @@ models. The version is shown at the bottom of the FLY window.
 To uninstall:
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/tuomasharkonen-ux/FLY-transcriber/main/install.sh | sh -s -- --uninstall
+curl -LsSf https://raw.githubusercontent.com/mokulawa/FLY-transcriber/main/install.sh | sh -s -- --uninstall
 ```
 
 This removes FLY, `FLY.app`, ownscribe, the speaker model and the login item.
