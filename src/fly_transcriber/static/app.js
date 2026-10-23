@@ -89,9 +89,8 @@ const TopBar = ({ route, run, onToggle }) => {
   return html`
     <header class="topbar">
       <div class="topbar-inner">
-        <a class="brand" href="#/" title=${BRAND_TEXT}>
+        <a class="brand" href="#/" title=${BRAND_TEXT} aria-label=${BRAND.name}>
           <${Logo} />
-          <span class="brand-name">${BRAND.name}</span>
         </a>
         <nav class="nav" role="tablist">
           <a class=${`nav-item ${tab === "recordings" ? "active" : ""}`} href="#/"
