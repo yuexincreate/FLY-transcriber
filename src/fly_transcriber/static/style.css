@@ -363,6 +363,17 @@ main { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; padding: 32px 24p
 
 .row-actions { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
 
+/* Selecting for batch delete: a checkbox column in front. */
+.row.row-selecting { grid-template-columns: 20px minmax(0, 1fr) 104px 168px; }
+.row.row-selected { background: var(--surface-2); }
+.row-check { width: 16px; height: 16px; margin: 0; accent-color: var(--brand); cursor: pointer; }
+.row-check:disabled { cursor: not-allowed; }
+.delete-list {
+  list-style: none; margin: 0; padding: 8px 12px; max-height: 220px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13.5px;
+}
+.delete-list li { padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* -- single recording ------------------------------------------------------ */
 
 .detail { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
@@ -630,5 +641,6 @@ select.input {
   .detail-side { position: static; }
   .grid-2, .choices { grid-template-columns: 1fr; }
   .row { grid-template-columns: minmax(0, 1fr) auto; }
+  .row.row-selecting { grid-template-columns: 20px minmax(0, 1fr) auto; }
   .row .pill { display: none; }
 }

@@ -20,7 +20,11 @@ CLI, which it runs as a subprocess. A few details are worth knowing if you work
 on it:
 
 - **Stop sends `SIGINT`.** That ends capture. Quitting during a recording asks
-  first, because that really does discard it.
+  first, because that really does discard it. The silence auto-stop ends
+  capture inside ownscribe without any signal from FLY, so the end of a
+  recording is read from ownscribe's own lines ("Stopping recording…",
+  "Recording auto-stopped after silence timeout.") into a short *saving*
+  phase. Otherwise FLY kept showing "Recording" while the models loaded.
 - **Processing waits for the user, unless `auto_process` is on.** Transcription
   and diarization tie up the Mac for minutes, so by default stopping only saves
   `recording.wav` in the meeting folder and the user presses Process later.

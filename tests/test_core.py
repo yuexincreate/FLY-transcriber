@@ -2136,3 +2136,24 @@ def test_failure_reason_explains_blocked_capture():
     assert "Screen & System Audio Recording" in recorder_mod.failure_reason(log)
     assert recorder_mod.failure_reason("Error: No audio was captured.\n") == "No audio was captured."
     assert recorder_mod.failure_reason("all fine") == ""
+
+
+def test_silence_auto_stop_ends_the_recording_state():
+    """ownscribe stops capture itself on the silence timeout; FLY must notice."""
+    rec = Recorder(Settings())
+    rec.state = RunState(phase=Phase.RECORDING)
+    rec._interpret("  Recording: 05:00\n\nRecording auto-stopped after silence timeout.\n")
+    assert rec.state.phase is Phase.SAVING
+    assert not rec.state.is_recording and rec.state.is_active
+    assert rec.state.detail == "Stopped after silence, saving"
+    assert rec.state.processing_started_at is None  # nothing is being processed yet
+    rec._interpret("Recording: 05:00 auto-stopped after silence timeout. Transcribing")
+    assert rec.state.phase is Phase.TRANSCRIBING
+    assert rec.state.processing_started_at is not None
+
+
+def test_a_manual_stop_leaves_the_recording_state_at_once():
+    rec = Recorder(Settings())
+    rec.state = RunState(phase=Phase.RECORDING)
+    rec._interpret("  Recording: 00:42\n\nStopping recording...\n")
+    assert rec.state.phase is Phase.SAVING and rec.state.detail == "Saving recording"

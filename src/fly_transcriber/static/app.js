@@ -111,7 +111,7 @@ const ProcessButton = ({ meeting, busy, toast, refresh, size, onClick }) => html
     title=${busy ? PROCESS_BUSY_HINT : "Transcribe and label speakers"}
     onClick=${(e) => { onClick?.(e); processMeeting(meeting, toast, refresh); }}>Process<//>`;
 
-const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh }) => {
+const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh, selecting, selected, onSelect }) => {
   const st = status(meeting);
   const canAct = meeting.has_transcript && !meeting.processing;
   const meta = [meeting.when, meeting.duration ? fmtDuration(meeting.duration) : null];
@@ -119,9 +119,18 @@ const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh }) => {
   if (n) meta.push(`${n} speaker${n === 1 ? "" : "s"}`);
   const open = () => go(`#/r/${encodeURIComponent(meeting.name)}`);
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+  // A recording still being written or processed can't be deleted.
+  const selectable = !meeting.processing;
+  const toggle = () => selectable && onSelect(meeting.name);
 
   return html`
-    <li class="row" onClick=${open}>
+    <li class=${`row ${selecting ? "row-selecting" : ""} ${selected ? "row-selected" : ""}`}
+      onClick=${selecting ? toggle : open}>
+      ${selecting && html`
+        <input type="checkbox" class="row-check" checked=${selected} disabled=${!selectable}
+          aria-label=${`Select ${meeting.title || "Untitled recording"}${meeting.when ? `, ${meeting.when}` : ""}`}
+          title=${selectable ? "" : "Still being processed"}
+          onClick=${(e) => e.stopPropagation()} onChange=${toggle} />`}
       <div class="row-main">
         <div class="row-title">${meeting.title || "Untitled recording"}</div>
         <div class="row-meta">
@@ -132,6 +141,7 @@ const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh }) => {
       </div>
       <${Pill} tone=${st.tone}>${st.label}<//>
       <div class="row-actions">
+        ${!selecting && html`
         ${meeting.needs_processing && html`
           <${ProcessButton} size="sm" meeting=${meeting} busy=${busy} toast=${toast} refresh=${refresh}
             onClick=${(e) => e.stopPropagation()} />`}
@@ -140,49 +150,81 @@ const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh }) => {
             onClick=${stop(() => onFile(meeting))}>${meeting.filed.length ? "Edit" : "Save"}<//>`}
         ${!meeting.processing && html`
           <${IconButton} icon="trash" label="Delete recording"
-            onClick=${stop(() => onDelete(meeting))} />`}
-        <${IconButton} icon="chevron" label="Open" onClick=${stop(open)} />
+            onClick=${stop(() => onDelete([meeting]))} />`}
+        <${IconButton} icon="chevron" label="Open" onClick=${stop(open)} />`}
       </div>
     </li>`;
 };
 
-const DeleteDialog = ({ meeting, onClose, onDeleted, toast }) => {
+const DeleteDialog = ({ meetings, onClose, onDeleted, toast }) => {
   const ref = useRef();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Recordings still left to delete: after a partial failure, only those.
+  const [left, setLeft] = useState(meetings);
 
   useEffect(() => { ref.current.showModal(); }, []);
 
   const remove = async () => {
     setBusy(true);
     setError("");
-    try {
-      await api("/api/delete", { meeting: meeting.name });
-      toast("Moved to the Trash");
+    const failed = [];
+    let reason = "";
+    // One at a time, through the same checks as a single delete.
+    for (const m of left) {
+      try {
+        await api("/api/delete", { meeting: m.name });
+      } catch (err) {
+        failed.push(m);
+        reason = err.message;
+      }
+    }
+    const done = left.length - failed.length;
+    if (done) toast(done === 1 ? "Moved to the Trash" : `${done} recordings moved to the Trash`);
+    if (!failed.length) {
       onDeleted?.();
       ref.current.close();
-    } catch (err) {
-      setError(err.message);
-      setBusy(false);
+      return;
     }
+    setError(failed.length === 1 && left.length === 1
+      ? reason
+      : `${failed.length} could not be deleted: ${reason}`);
+    setLeft(failed);
+    setBusy(false);
   };
+
+  const one = left.length === 1 ? left[0] : null;
+  const filed = left.some((m) => m.filed.length);
+  const audio = left.some((m) => m.has_audio);
 
   return html`
     <dialog class="dialog dialog-narrow" ref=${ref} onClose=${onClose}
       onClick=${(e) => e.target === ref.current && ref.current.close()}>
       <div class="dialog-body">
         <div class="dialog-head">
-          <h2>Delete this recording?</h2>
+          <h2>${one ? "Delete this recording?" : `Delete ${left.length} recordings?`}</h2>
         </div>
-        <p>
-          <strong>${meeting.title || "Untitled recording"}</strong>${meeting.when ? ` (${meeting.when})` : ""}${" "}
-          and its transcript${meeting.has_audio ? " and audio" : ""} move to the Trash.
-          ${meeting.filed.length > 0 ? " Notes already saved to your projects are kept." : ""}
-        </p>
+        ${one
+          ? html`<p>
+              <strong>${one.title || "Untitled recording"}</strong>${one.when ? ` (${one.when})` : ""}${" "}
+              and its transcript${one.has_audio ? " and audio" : ""} move to the Trash.
+              ${filed ? " Notes already saved to your projects are kept." : ""}
+            </p>`
+          : html`<p>
+              These recordings and their transcripts${audio ? " and audio" : ""} move to the Trash,
+              where you can still restore them.${filed ? " Notes already saved to your projects are kept." : ""}
+            </p>
+            <ul class="delete-list">
+              ${left.map((m) => html`<li key=${m.name}>
+                <strong>${m.title || "Untitled recording"}</strong>${m.when ? ` · ${m.when}` : ""}
+              </li>`)}
+            </ul>`}
         ${error && html`<div class="error-text">${error}</div>`}
         <div class="dialog-foot">
           <${Button} onClick=${() => ref.current.close()}>Cancel<//>
-          <${Button} variant="danger" disabled=${busy} onClick=${remove}>${busy ? "Deleting…" : "Delete"}<//>
+          <${Button} variant="danger" disabled=${busy} onClick=${remove}>
+            ${busy ? "Deleting…" : one ? "Delete" : `Delete ${left.length}`}
+          <//>
         </div>
       </div>
     </dialog>`;
@@ -194,6 +236,26 @@ const RecordingsView = ({ meetings, onFile, toast, refresh, busy }) => {
   const waiting = [unprocessed && `${unprocessed} waiting to be processed`, unfiled && `${unfiled} waiting to be saved`]
     .filter(Boolean).join(", ");
   const [deleting, setDeleting] = useState(null);
+  // Selection for batch delete, by meeting name so polling can't disturb it.
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const selectable = meetings.filter((m) => !m.processing);
+  // Drop anything that disappeared or started processing since it was picked.
+  const chosen = selectable.filter((m) => picked.has(m.name));
+  const allPicked = selectable.length > 0 && chosen.length === selectable.length;
+  const toggle = (name) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    return next;
+  });
+  const stopSelecting = () => { setSelecting(false); setPicked(new Set()); };
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e) => { if (e.key === "Escape" && !deleting) stopSelecting(); };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [selecting, deleting]);
   return html`
     <section class="page">
       <div class="page-head">
@@ -205,16 +267,36 @@ const RecordingsView = ({ meetings, onFile, toast, refresh, busy }) => {
               : "Start a recording from the top right, or from the FLY icon in the menubar"}
           </p>
         </div>
+        ${selectable.length > 0 && html`
+          <div class="head-actions">
+            ${selecting
+              ? html`
+                <${Button} size="sm" variant="ghost"
+                  onClick=${() => setPicked(allPicked ? new Set() : new Set(selectable.map((m) => m.name)))}>
+                  ${allPicked ? "Select none" : "Select all"}
+                <//>
+                <${Button} size="sm" onClick=${stopSelecting}>Done<//>`
+              : html`<${Button} size="sm" onClick=${() => setSelecting(true)}>Select<//>`}
+          </div>`}
       </div>
       ${meetings.length
         ? html`<ul class="list">
             ${meetings.map((m) => html`<${RecordingRow} key=${m.name} meeting=${m} onFile=${onFile}
-              onDelete=${setDeleting} busy=${busy} toast=${toast} refresh=${refresh} />`)}
+              onDelete=${setDeleting} busy=${busy} toast=${toast} refresh=${refresh}
+              selecting=${selecting} selected=${picked.has(m.name)} onSelect=${toggle} />`)}
           </ul>`
         : html`<${Empty} title="No recordings yet">
             Click Start recording at the top right, or the FLY icon in the menubar. Finished recordings show up here.
           <//>`}
-      ${deleting && html`<${DeleteDialog} meeting=${deleting} toast=${toast} onClose=${() => setDeleting(null)} />`}
+      <div class=${`savebar ${selecting ? "visible" : ""}`} role="toolbar" aria-label="Selected recordings">
+        <span>${chosen.length ? `${chosen.length} selected` : "Select recordings to delete"}</span>
+        <${Button} variant="ghost" onClick=${stopSelecting}>Cancel<//>
+        <${Button} variant="danger" icon="trash" disabled=${!chosen.length}
+          onClick=${() => setDeleting(chosen)}>Delete${chosen.length ? ` ${chosen.length}` : ""}<//>
+      </div>
+      ${deleting && html`<${DeleteDialog} meetings=${deleting} toast=${toast}
+        onDeleted=${() => { stopSelecting(); refresh?.(); }}
+        onClose=${() => setDeleting(null)} />`}
     </section>`;
 };
 
@@ -419,7 +501,7 @@ const RecordingView = ({ meeting, onFile, toast, refresh, busy }) => {
           </div>
         </aside>
       </div>
-      ${deleting && html`<${DeleteDialog} meeting=${meeting} toast=${toast}
+      ${deleting && html`<${DeleteDialog} meetings=${[meeting]} toast=${toast}
         onDeleted=${() => go("#/")} onClose=${() => setDeleting(false)} />`}
     </section>`;
 };

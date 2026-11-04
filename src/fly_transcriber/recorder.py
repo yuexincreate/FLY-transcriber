@@ -39,6 +39,9 @@ class Phase(str, Enum):
     IDLE = "idle"
     STARTING = "starting"
     RECORDING = "recording"
+    #: Capture has ended (stopped, or ownscribe's silence auto-stop) and the
+    #: audio is being written; processing, if any, has not started yet.
+    SAVING = "saving"
     TRANSCRIBING = "transcribing"
     DIARIZING = "diarizing"
     SUMMARIZING = "summarizing"
@@ -358,6 +361,10 @@ class Recorder:
         # Later phases win: the log is cumulative, so check in pipeline order and
         # let the furthest-along marker set the phase.
         for marker, phase in (
+            # ownscribe ends capture itself on the silence timeout, so these
+            # lines -- not our SIGINT -- are what say recording is over.
+            ("Stopping recording", Phase.SAVING),
+            ("auto-stopped after silence", Phase.SAVING),
             ("Transcribing", Phase.TRANSCRIBING),
             ("Diarizing", Phase.DIARIZING),
             ("Identifying speakers", Phase.DIARIZING),
@@ -366,6 +373,12 @@ class Recorder:
             if marker in tail and self.state.phase is not phase:
                 # Only advance forwards through the pipeline.
                 if _phase_order(phase) > _phase_order(self.state.phase):
+                    if phase is Phase.SAVING:
+                        self.state.phase = phase
+                        silent = marker.startswith("auto-stopped")
+                        self.state.detail = "Stopped after silence, saving" if silent else "Saving recording"
+                        changed = True
+                        continue
                     if self.state.processing_started_at is None:
                         self.state.processing_started_at = time.time()
                         self.state.processing_eta = progress.predict(
@@ -433,6 +446,7 @@ _PHASE_ORDER = [
     Phase.IDLE,
     Phase.STARTING,
     Phase.RECORDING,
+    Phase.SAVING,
     Phase.TRANSCRIBING,
     Phase.DIARIZING,
     Phase.SUMMARIZING,
