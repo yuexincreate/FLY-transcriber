@@ -2157,3 +2157,17 @@ def test_a_manual_stop_leaves_the_recording_state_at_once():
     rec.state = RunState(phase=Phase.RECORDING)
     rec._interpret("  Recording: 00:42\n\nStopping recording...\n")
     assert rec.state.phase is Phase.SAVING and rec.state.detail == "Saving recording"
+
+
+def test_installer_error_is_read_from_the_update_log():
+    from fly_transcriber.app import installer_error
+
+    log = (
+        "Checked: uname -m=x86_64, hw.optional.arm64=1, sysctl.proc_translated=1\n"
+        "\x1b[31mError:\x1b[0m This Mac is Apple Silicon, but the installer is running in Intel mode.\n"
+        "\n\x1b[31mFLY was not fully installed.\x1b[0m The messages above say what went wrong.\n"
+    )
+    assert installer_error(log) == "This Mac is Apple Silicon, but the installer is running in Intel mode."
+    # Without an "Error:" line, the last thing it printed is the best clue.
+    assert installer_error("curl: (6) Could not resolve host\n") == "curl: (6) Could not resolve host"
+    assert installer_error("") == "The installer stopped without saying why."

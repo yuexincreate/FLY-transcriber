@@ -57,6 +57,23 @@ def app_version() -> str:
 UPDATE_REPO = "yuexincreate/FLY-transcriber"
 UPDATE_INSTALL_URL = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/install.sh"
 UPDATE_LOG = Path("~/.local/share/fly-transcriber/update.log").expanduser()
+#: Shown when an update from the app fails: the same update, run where it can be watched.
+UPDATE_COMMAND = f"curl -LsSf {UPDATE_INSTALL_URL} | sh"
+_ESCAPES_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def installer_error(output: str) -> str:
+    """The reason install.sh gave for stopping, from its log output.
+
+    Its errors are lines starting "Error:" (after colour codes are removed);
+    the last one is the one that stopped it.
+    """
+    lines = [_ESCAPES_RE.sub("", ln).strip() for ln in output.replace("\r", "\n").splitlines()]
+    errors = [ln.removeprefix("Error:").strip() for ln in lines if ln.startswith("Error:")]
+    if errors:
+        return errors[-1]
+    tail = [ln for ln in lines if ln]
+    return tail[-1] if tail else "The installer stopped without saying why."
 
 
 def _version_tuple(text: str) -> tuple[int, ...]:
@@ -110,6 +127,9 @@ class MeetingRecorderApp:
         self._needs_refresh = False
         #: Recordings with a transcript that are neither filed nor skipped.
         self._awaiting = 0
+        #: The installer started by an update, and where its output begins in the log.
+        self._update_proc: subprocess.Popen | None = None
+        self._update_offset = 0
         #: Recordings waiting for the user to process them.
         self._unprocessed = 0
 
@@ -371,6 +391,7 @@ class MeetingRecorderApp:
             )
         return {
             "version": app_version(),
+            "update": self._update_status(),
             "run": self._run_summary(run),
             "meetings": meetings,
             "projects": [
@@ -622,14 +643,45 @@ class MeetingRecorderApp:
         run = self.recorder.state
         if run.is_active:
             raise ValueError("Let the current recording finish before updating.")
+        if self._update_proc is not None and self._update_proc.poll() is None:
+            return {"ok": True}  # already running
         UPDATE_LOG.parent.mkdir(parents=True, exist_ok=True)
         with UPDATE_LOG.open("ab") as log:
-            subprocess.Popen(
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            log.write(f"\n== Update from FLY v{app_version()}, {stamp} ==\n".encode())
+            log.flush()
+            self._update_offset = log.tell()
+            self._update_proc = subprocess.Popen(
                 ["/bin/sh", "-c", f"curl -fsSL {UPDATE_INSTALL_URL} | sh"],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
         return {"ok": True}
+
+    def _update_status(self) -> dict | None:
+        """How an update started from here is going.
+
+        A successful update stops this process and starts the new version, so
+        all this can ever report is "running" -- or, if the installer exits
+        while we are still here, that it didn't work and why.
+        """
+        proc = self._update_proc
+        if proc is None:
+            return None
+        if proc.poll() is None:
+            return {"status": "running"}
+        try:
+            with UPDATE_LOG.open("rb") as f:
+                f.seek(self._update_offset)
+                output = f.read().decode("utf-8", errors="replace")
+        except OSError:
+            output = ""
+        return {
+            "status": "failed",
+            "error": installer_error(output),
+            "log": str(UPDATE_LOG),
+            "command": UPDATE_COMMAND,
+        }
 
     # -- checks --------------------------------------------------------------
 

@@ -993,13 +993,16 @@ const UpdateDialog = ({ latest, onClose, onApplied }) => {
     </dialog>`;
 };
 
-const UpdateCard = ({ version, toast }) => {
+const UpdateCard = ({ version, update, toast }) => {
   const [checking, setChecking] = useState(false);
   const [info, setInfo] = useState(null);
   const [confirming, setConfirming] = useState(false);
   // The running version at the moment the update was triggered; once the app
   // comes back on a different version, the update is done.
   const [applied, setApplied] = useState(null);
+  const failed = update?.status === "failed";
+  // Waiting for the new version; a failed run hands the buttons back.
+  const pending = applied && !failed;
 
   useEffect(() => {
     if (applied && version && version !== applied) {
@@ -1027,23 +1030,37 @@ const UpdateCard = ({ version, toast }) => {
           <h2>Updates</h2>
           <p class="subtle">Running v${version || "dev"}</p>
         </div>
-        ${!applied && html`
+        ${!pending && html`
           ${info?.available
             ? html`<${Button} variant="primary" onClick=${() => setConfirming(true)}>Update to v${info.latest}<//>`
             : html`<${Button} icon="refresh" onClick=${check} disabled=${checking}>
                 ${checking ? "Checking…" : "Check for updates"}<//>`}`}
       </div>
-      ${applied && html`<p class="subtle">
+      ${pending && html`<p class="subtle">
         Updating in the background — FLY will quit and reopen on its own. This can take a few minutes.
       </p>`}
-      ${!applied && info && !info.available && !info.error && html`<p class="subtle">You're up to date.</p>`}
-      ${!applied && info?.error && html`<div class="error-text">${info.error}</div>`}
+      ${failed && html`
+        <div class="update-failed">
+          <div class="error-text">The update didn't finish: ${update.error}</div>
+          <p class="subtle">
+            Run it in Terminal instead, where you can see each step. It quits FLY, installs the new
+            version and opens it again:
+          </p>
+          <div class="update-command">
+            <code>${update.command}</code>
+            <${Button} size="sm" icon="copy" onClick=${() =>
+              navigator.clipboard.writeText(update.command).then(() => toast("Copied"), () => toast("Couldn't copy", "error"))}>Copy<//>
+          </div>
+          <p class="subtle">The full output is in <code>${update.log}</code>.</p>
+        </div>`}
+      ${!pending && !failed && info && !info.available && !info.error && html`<p class="subtle">You're up to date.</p>`}
+      ${!pending && info?.error && html`<div class="error-text">${info.error}</div>`}
       ${confirming && html`<${UpdateDialog} latest=${info.latest}
         onApplied=${() => setApplied(version)} onClose=${() => setConfirming(false)} />`}
     </div>`;
 };
 
-const SettingsView = ({ settings, projects, adding, refresh, toast, version }) => {
+const SettingsView = ({ settings, projects, adding, refresh, toast, version, update }) => {
   const [draft, setDraft] = useState(settings);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1124,7 +1141,7 @@ const SettingsView = ({ settings, projects, adding, refresh, toast, version }) =
 
       <${ProjectsCard} projects=${projects} adding=${adding} refresh=${refresh} toast=${toast} />
 
-      <${UpdateCard} version=${version} toast=${toast} />
+      <${UpdateCard} version=${version} update=${update} toast=${toast} />
 
       <div class=${`savebar ${dirty ? "visible" : ""}`}>
         <span>Unsaved changes</span>
@@ -1197,7 +1214,8 @@ function App() {
   if (!state) page = html`<div class="loading page">Loading…</div>`;
   else if (route.view === "settings") {
     page = html`<${SettingsView} settings=${state.settings} projects=${projects}
-      adding=${route.adding} refresh=${refresh} toast=${toast} version=${state.version} />`;
+      adding=${route.adding} refresh=${refresh} toast=${toast} version=${state.version}
+      update=${state.update} />`;
   }
   else if (route.view === "recording") page = html`<${RecordingView} meeting=${byName[route.name]} onFile=${(m) => setFiling(m.name)} toast=${toast} refresh=${refresh} busy=${runBusy(run)} />`;
   else page = html`<${RecordingsView} meetings=${meetings} onFile=${(m) => setFiling(m.name)} toast=${toast} refresh=${refresh} busy=${runBusy(run)} />`;

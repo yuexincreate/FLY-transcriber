@@ -264,7 +264,20 @@ fi
 trap 'interrupted $?' EXIT
 
 [ "$(uname -s)" = Darwin ] || fail "macOS only."
-[ "$(uname -m)" = arm64 ] || fail "Needs an Apple Silicon Mac (M1 or later)."
+if [ "$(uname -m)" != arm64 ]; then
+  # Logged so a wrong answer can be told apart from a real Intel Mac: an Apple
+  # Silicon Mac reports hw.optional.arm64=1 even when this shell runs under
+  # Rosetta (sysctl.proc_translated=1), where uname says x86_64.
+  echo "Checked: uname -m=$(uname -m), hw.optional.arm64=$(sysctl -n hw.optional.arm64 2>/dev/null || echo none)," \
+    "sysctl.proc_translated=$(sysctl -n sysctl.proc_translated 2>/dev/null || echo none)" >&2
+  if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" != 1 ]; then
+    fail "Needs an Apple Silicon Mac (M1 or later)."
+  elif [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ]; then
+    fail "This Mac is Apple Silicon, but the installer is running in Intel mode (Rosetta). Run the install command in Terminal, without Rosetta."
+  fi
+  # Apple Silicon hardware, not translated: only uname's answer is odd.
+  warn "uname reported $(uname -m), but this Mac is Apple Silicon; continuing."
+fi
 
 macos="$(sw_vers -productVersion)"
 major="${macos%%.*}"
