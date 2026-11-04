@@ -8,6 +8,7 @@ recordings are kept, nothing else.
 from __future__ import annotations
 
 import re
+import struct
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
@@ -45,11 +46,35 @@ class Meeting:
         return self.transcript_path is not None
 
     @property
+    def audio_path(self) -> Path | None:
+        """The recording, if it was kept or has not been processed yet."""
+        wav = self.directory / "recording.wav"
+        if wav.is_file():
+            return wav
+        # Skip the capture helper's leftovers (recording.wav.mic.tmp.wav) from a
+        # run that failed before writing the recording.
+        return next(
+            (p for p in sorted(self.directory.glob("*.wav"))
+             if p.is_file() and ".tmp." not in p.name),
+            None,
+        )
+
+    @property
+    def needs_processing(self) -> bool:
+        """Recorded but not yet transcribed: waiting for the user to process it."""
+        if self.has_transcript:
+            return False
+        audio = self.audio_path
+        # A header with no samples is a capture that failed, not a recording.
+        return audio is not None and audio_duration(audio) > 0
+
+    @property
     def duration(self) -> float:
         """Length in seconds. Falls back to the last turn when unknown."""
         path = self.transcript_path
         if path is None:
-            return 0.0
+            audio = self.audio_path
+            return audio_duration(audio) if audio else 0.0
         seconds = _duration(path)
         if seconds:
             return seconds
@@ -82,6 +107,42 @@ class Meeting:
     def display_name(self) -> str:
         when = self.started.strftime("%d.%m. %H:%M") if self.started else "?"
         return f"{when}  {self.title}" if self.title else when
+
+
+def audio_duration(path: Path) -> float:
+    """Length of a WAV file in seconds, or 0.0 if it can't be read.
+
+    Reads the RIFF header itself: the stdlib ``wave`` module refuses the 32-bit
+    float WAVs ownscribe's capture helper can write.
+    """
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+            if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+                return 0.0
+            byte_rate = 0
+            while True:
+                chunk = f.read(8)
+                if len(chunk) < 8:
+                    return 0.0
+                kind, size = chunk[:4], struct.unpack("<I", chunk[4:])[0]
+                if kind == b"fmt ":
+                    fmt = f.read(size + (size & 1))
+                    if len(fmt) < 12:
+                        return 0.0
+                    byte_rate = struct.unpack("<I", fmt[8:12])[0]
+                elif kind == b"data":
+                    if not byte_rate:
+                        return 0.0
+                    # A capture that was cut short may leave the size unwritten.
+                    remaining = path.stat().st_size - f.tell()
+                    if size in (0, 0xFFFFFFFF) or size > remaining:
+                        size = remaining
+                    return max(size, 0) / byte_rate
+                else:
+                    f.seek(size + (size & 1), 1)
+    except (OSError, struct.error):
+        return 0.0
 
 
 def speaker_samples(meeting: "Meeting", max_chars: int = 90) -> dict[str, str]:

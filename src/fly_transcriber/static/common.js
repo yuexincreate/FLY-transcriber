@@ -59,11 +59,23 @@ export function initials(name) {
 
 export function status(meeting) {
   if (meeting.processing) return { tone: "busy", label: "Processing" };
+  if (meeting.needs_processing) return { tone: "warn", label: "Not processed" };
   if (!meeting.has_transcript) return { tone: "muted", label: "No transcript" };
   if (meeting.filed.length) return { tone: "ok", label: "Saved" };
   if (meeting.state.dismissed) return { tone: "muted", label: "Skipped" };
   return { tone: "warn", label: "Not saved" };
 }
+
+/** Whether a recording or processing run is going on (only one runs at a time). */
+export const runBusy = (run) => run?.css === "recording" || run?.css === "busy";
+
+/** Start transcribing a recording that was saved without processing. */
+export const processMeeting = (meeting, toast, refresh) =>
+  api("/api/process", { meeting: meeting.name })
+    .then(() => refresh?.())
+    .catch((e) => toast(e.message, "error"));
+
+export const PROCESS_BUSY_HINT = "Available when the current recording has finished";
 
 /** Matches the menubar's "Ready to save (n)" count. */
 export const awaitsFiling = (m) =>

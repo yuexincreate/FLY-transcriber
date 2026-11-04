@@ -48,6 +48,7 @@ from fly_transcriber.projects import (
     slugify,
 )
 from fly_transcriber.meetings import (
+    audio_duration,
     list_meetings,
     parse_meeting_dir,
     speaker_samples,
@@ -1985,3 +1986,153 @@ def test_launcher_names_the_tool_relative_to_home(tmp_path, monkeypatch):
             break
         time.sleep(0.1)
     assert marker.read_text().strip() == "--show"
+
+
+# -- processing later ----------------------------------------------------------
+
+
+def _wav(path, seconds, rate=48000, channels=1, bits=32, fmt=3, data_size=None):
+    """A WAV header (float32 by default, as ownscribe's capture helper writes)."""
+    import struct
+
+    byte_rate = rate * channels * bits // 8
+    data = b"\0" * int(byte_rate * seconds)
+    size = len(data) if data_size is None else data_size
+    fmt_chunk = struct.pack("<HHIIHH", fmt, channels, rate, byte_rate, channels * bits // 8, bits)
+    path.write_bytes(
+        b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVE"
+        + b"fmt " + struct.pack("<I", len(fmt_chunk)) + fmt_chunk
+        + b"data" + struct.pack("<I", size) + data
+    )
+    return path
+
+
+def test_audio_duration_reads_float_and_pcm_wavs(tmp_path):
+    assert audio_duration(_wav(tmp_path / "f.wav", 2.0)) == pytest.approx(2.0)
+    assert audio_duration(_wav(tmp_path / "p.wav", 1.5, bits=16, fmt=1, channels=2)) == pytest.approx(1.5)
+
+
+def test_audio_duration_tolerates_unfinished_and_broken_files(tmp_path):
+    # A capture cut short can leave the data size unwritten: use the file size.
+    assert audio_duration(_wav(tmp_path / "u.wav", 1.0, data_size=0)) == pytest.approx(1.0)
+    (tmp_path / "junk.wav").write_bytes(b"not a wav")
+    assert audio_duration(tmp_path / "junk.wav") == 0.0
+    assert audio_duration(tmp_path / "missing.wav") == 0.0
+
+
+def test_a_recording_without_transcript_needs_processing(tmp_path):
+    folder = tmp_path / "2026-11-04_1000"
+    folder.mkdir()
+    meeting = parse_meeting_dir(folder)
+    assert not meeting.needs_processing  # nothing at all: not a pending recording
+    _wav(folder / "recording.wav", 3.0)
+    assert meeting.needs_processing
+    assert meeting.duration == pytest.approx(3.0)
+    (folder / "transcript.json").write_text('{"segments": []}', encoding="utf-8")
+    assert not parse_meeting_dir(folder).needs_processing
+
+
+def test_auto_process_is_off_by_default():
+    assert Settings().auto_process is False
+
+
+def test_recording_only_goes_through_the_launcher(tmp_path, monkeypatch):
+    _ownscribe_script(tmp_path, monkeypatch)
+    monkeypatch.setattr(recorder_mod, "has_mlx", lambda python: False)  # not needed to record
+    cmd, env, _engine = Recorder(Settings()).record_command()
+    assert cmd[:3] == [sys.executable, "-P", str(recorder_mod.MLX_LAUNCHER)]
+    assert "--no-summarize" in cmd
+    assert env["FLY_RECORD_ONLY"] == "1"
+
+
+def test_auto_process_records_and_processes_in_one_run(tmp_path, monkeypatch):
+    script = _ownscribe_script(tmp_path, monkeypatch)
+    monkeypatch.setattr(recorder_mod, "has_mlx", lambda python: False)
+    cmd, env, engine = Recorder(Settings(auto_process=True)).record_command()
+    assert cmd[0] == str(script) and env is None and engine == "faster-whisper"
+
+
+def test_without_ownscribes_python_recording_processes_at_once(monkeypatch):
+    # The uvx fallback has no launcher to stop the pipeline after capture.
+    monkeypatch.setattr(
+        recorder_mod.shutil, "which", lambda name: "/bin/uvx" if name == "uvx" else None
+    )
+    cmd, env, _engine = Recorder(Settings()).record_command()
+    assert cmd[:2] == ["/bin/uvx", "ownscribe"] and env is None
+
+
+def test_processing_resumes_the_meeting_folder(tmp_path):
+    folder = tmp_path / "2026-11-04_1000"
+    args = Recorder(Settings(model="large-v3", language="fi")).process_args(folder)
+    assert args == ["resume", str(folder.resolve()), "--model", "large-v3", "--language", "fi"]
+    assert "--language" not in Recorder(Settings()).process_args(folder)
+
+
+def test_processing_starts_in_the_transcribing_phase(tmp_path, monkeypatch):
+    _ownscribe_script(tmp_path, monkeypatch)
+    monkeypatch.setattr(recorder_mod, "has_mlx", lambda python: False)
+    launched = []
+    rec = Recorder(Settings())
+    monkeypatch.setattr(rec, "_launch", lambda cmd, env: launched.append(cmd))
+    folder = tmp_path / "2026-11-04_1000"
+    rec.process(folder, audio_seconds=600)
+    assert launched[0][1:3] == ["resume", str(folder.resolve())]
+    assert rec.state.phase is Phase.TRANSCRIBING and rec.state.meeting_dir == folder
+    assert rec.current_dir == folder
+    assert rec.state.processing_eta > 0
+    with pytest.raises(RuntimeError):
+        rec.process(folder)  # one run at a time
+
+
+def test_a_record_only_run_ends_as_saved(tmp_path):
+    rec = Recorder(Settings(output_dir=str(tmp_path)))
+    rec.state = RunState(phase=Phase.RECORDING)
+    rec._finish(0)
+    assert rec.state.phase is Phase.DONE and rec.state.detail == "Recording saved"
+
+
+def test_defer_processing_stops_the_pipeline_after_capture(capsys):
+    pipeline = types.SimpleNamespace(_do_transcribe_and_summarize=lambda *a: 1 / 0)
+    mlx_launch.defer_processing(pipeline)
+    pipeline._do_transcribe_and_summarize(None, Path("/x/recording.wav"), Path("/x"))
+    assert mlx_launch.DEFERRED_MARKER in capsys.readouterr().out
+
+
+def test_server_routes_process(tmp_path):
+    asked = []
+    api = Api(snapshot=lambda: {}, file_meeting=None, save_settings=None, forget=None,
+              process=lambda name: asked.append(name) or {"ok": True})
+    server = make_server(api, 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        port = server.server_address[1]
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/process", data=b'{"meeting": "2026-11-04_1000"}',
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert json.loads(resp.read()) == {"ok": True}
+        assert asked == ["2026-11-04_1000"]
+    finally:
+        server.shutdown()
+
+
+def test_a_failed_capture_is_not_waiting_to_be_processed(tmp_path):
+    folder = tmp_path / "2026-11-04_2128"
+    folder.mkdir()
+    # What macOS refusing the capture leaves behind: the mic helper's temp file.
+    _wav(folder / "recording.wav.mic.tmp.wav", 1.0)
+    assert not parse_meeting_dir(folder).needs_processing
+    _wav(folder / "recording.wav", 0.0)  # header only
+    assert not parse_meeting_dir(folder).needs_processing
+
+
+def test_failure_reason_explains_blocked_capture():
+    log = (
+        "  Recording: 00:00Error: Error Domain=com.apple.ScreenCaptureKit.SCStreamErrorDomain "
+        'Code=-3801 "The user declined TCCs for application, window, display capture"\n'
+        "Error: No audio was captured.\n"
+    )
+    assert "Screen & System Audio Recording" in recorder_mod.failure_reason(log)
+    assert recorder_mod.failure_reason("Error: No audio was captured.\n") == "No audio was captured."
+    assert recorder_mod.failure_reason("all fine") == ""

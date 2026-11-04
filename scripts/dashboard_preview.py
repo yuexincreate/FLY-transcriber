@@ -32,11 +32,13 @@ STATE = {
 }
 
 
-def meeting(name, title, when, duration, speakers, filed=(), processing=False, transcript=True):
+def meeting(name, title, when, duration, speakers, filed=(), processing=False, transcript=True,
+            unprocessed=False):
     entry = STATE.get(name, {})
     return {
         "name": name, "title": entry.get("title", title), "when": when, "duration": duration,
         "has_transcript": transcript, "has_audio": True, "processing": processing,
+        "needs_processing": unprocessed,
         "speakers": speakers,
         "samples": {s: next(t for sp, _, t in TURNS if sp == s) for s in speakers},
         "filed": [{"project": p, "path": f"/Users/me/{p}/meetings/_inbox/28-09-26-{name}.md", "at": ""} for p in filed],
@@ -104,13 +106,14 @@ def snapshot():
         "run": run_summary(),
         "meetings": [
             meeting("in-progress", "", "29.09. 10:00", 0, [], processing=True, transcript=False),
+            meeting("standup", "", "29.09. 09:00", 900, [], transcript=False, unprocessed=True),
             meeting("acme-sync", "", "28.09. 14:20", 3420, three),
             meeting("design-review", "Design review", "27.09. 09:30", 1800, three[:2], filed=["Globex"]),
             meeting("one-on-one", "", "26.09. 13:00", 1500, three[:2], filed=["Acme", "Globex"]),
         ],
         "projects": [project_dict(p) for p in PROJECTS],
         "settings": {"model": "large-v3", "language": "", "silence_timeout": 300, "speaker_count": 0,
-                     "mic": True, "diarize": True, "keep_recording": True},
+                     "mic": True, "diarize": True, "keep_recording": True, "auto_process": False},
     }
 
 
@@ -151,6 +154,7 @@ if __name__ == "__main__":
               reveal_project=lambda n: {"ok": True},
               # No native picker here: pretend the user chose ~/Documents.
               choose_folder=lambda p: {"path": "~/Documents"},
-              check_update=check_update, apply_update=apply_update, rename_speaker=rename_speaker)
+              check_update=check_update, apply_update=apply_update, rename_speaker=rename_speaker,
+              process=lambda n: {"ok": True})
     print(f"http://127.0.0.1:{PORT}/")
     make_server(api, PORT).serve_forever()

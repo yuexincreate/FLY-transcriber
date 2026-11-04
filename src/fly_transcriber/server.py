@@ -62,6 +62,7 @@ class Api:
         check_update: Callable[[], dict] | None = None,
         apply_update: Callable[[], dict] | None = None,
         rename_speaker: Callable[[str, str, str], dict] | None = None,
+        process: Callable[[str], dict] | None = None,
     ) -> None:
         self.snapshot = snapshot
         self.file_meeting = file_meeting
@@ -71,6 +72,7 @@ class Api:
         self.reveal = reveal or _unsupported
         self.dismiss = dismiss or _unsupported
         self.record = record or _unsupported
+        self.process = process or _unsupported
         self.show = show or _unsupported
         self.delete = delete or _unsupported
         self.plan_project = plan_project or _unsupported
@@ -198,6 +200,8 @@ class _Handler(BaseHTTPRequestHandler):
                 result = self.api.dismiss(payload.get("meeting", ""))
             elif path == "/api/record":
                 result = self.api.record()
+            elif path == "/api/process":
+                result = self.api.process(str(payload.get("meeting", "")))
             elif path == "/api/delete":
                 result = self.api.delete(payload.get("meeting", ""))
             elif path == "/api/show":

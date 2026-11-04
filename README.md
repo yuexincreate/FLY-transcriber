@@ -14,7 +14,7 @@ what*, which you hand to the AI agent in your project folder to write the notes.
 Tell people when you record; see [Privacy and consent](#privacy-and-consent).
 
 <p align="center">
-  <img src="docs/demo.gif" width="470" alt="The FLY menubar panel: start and stop a recording, wait for processing, then name the speakers and save the transcript into a project">
+  <img src="docs/demo.gif" width="470" alt="The FLY menubar panel: start and stop a recording, process it, then name the speakers and save the transcript into a project">
 </p>
 
 ```
@@ -108,8 +108,10 @@ is FLY.
 
 1. Click the FLY icon and **Start recording** (the dashboard has the same
    button at the top right). The icon turns red and shows a timer.
-2. **Stop recording** when the meeting ends. Processing starts on its own and
-   the panel shows its progress.
+2. **Stop recording** when the meeting ends. The recording is saved and marked
+   **Process**. Click it when you have a few minutes to spare (it keeps the
+   Mac busy); the panel shows the progress. To process every recording as
+   soon as you stop, turn on *Process recordings automatically* in Settings.
 3. When it's done, open the panel and click the recording marked **Save**. Add
    a title, name each speaker (each is shown with the longest thing they said), pick a
    project, and save.
@@ -118,7 +120,7 @@ is FLY.
    transcript.
 
 Processing takes about a minute plus an eighth of the meeting's length: a
-25-minute meeting is ready about 4 minutes after you stop. Click a saved
+25-minute meeting is ready about 4 minutes after you start processing it. Click a saved
 recording to read its transcript. Right-click the icon for Add Project, the
 recordings folder, advanced settings and Quit. If you quit FLY, open it again
 from Spotlight (⌘Space, then type FLY).

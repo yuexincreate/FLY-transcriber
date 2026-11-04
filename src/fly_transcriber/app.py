@@ -21,7 +21,7 @@ from .diarization import check_diarization
 from .dialogs import ask_text, choose_folder
 from .filing import file_meeting
 from .launcher import install_launcher, remove_launcher
-from .meetings import list_meetings, move_to_trash, parse_meeting_dir
+from .meetings import audio_duration, list_meetings, move_to_trash, parse_meeting_dir
 from .projects import apply_plan, display_path, install_agent_files, plan_from_request, plan_to_dict
 from .recorder import Phase, RunState, Recorder, ownscribe_command
 from .server import APP_ID, Api, serve_in_background, show_running_instance
@@ -110,6 +110,8 @@ class MeetingRecorderApp:
         self._needs_refresh = False
         #: Recordings with a transcript that are neither filed nor skipped.
         self._awaiting = 0
+        #: Recordings waiting for the user to process them.
+        self._unprocessed = 0
 
         self._server, self.dashboard_url = self._start_server()
         self.shell = Shell(
@@ -159,6 +161,11 @@ class MeetingRecorderApp:
     def _refresh_awaiting(self) -> None:
         meetings = list_meetings(self.settings.resolved_output_dir)
         self._awaiting = len(meeting_state.awaiting_filing(meetings))
+        # The folder being recorded into or processed isn't waiting.
+        current = self.recorder.current_dir if self.recorder.state.is_active else None
+        self._unprocessed = sum(
+            1 for m in meetings if m.needs_processing and m.directory != current
+        )
 
     # -- recording -----------------------------------------------------------
 
@@ -169,9 +176,57 @@ class MeetingRecorderApp:
             self.start_recording()
 
     def stop_recording(self) -> None:
-        # SIGINT ends capture and starts processing; nothing to ask here.
+        # SIGINT ends capture (and, with auto_process, starts processing).
         self.recorder.stop()
         self._dirty.set()
+
+    def process_meeting(self, directory: Path) -> None:
+        """Transcribe a recording that was saved without processing."""
+        self.shell.close_popover()
+        if self.recorder.state.is_active:
+            busy = "recording" if self.recorder.state.is_recording else "processing"
+            alert(
+                "FLY is busy",
+                f"Another recording is {busy}. Process this one when it has finished.",
+            )
+            return
+        if not self._prepare_run(action="Process"):
+            return
+        meeting = parse_meeting_dir(directory)
+        audio = meeting.audio_path
+        try:
+            self.recorder.process(directory, audio_duration(audio) if audio else 0.0)
+        except Exception as exc:
+            alert("Could not start processing", str(exc))
+            return
+        self._dirty.set()
+
+    def _prepare_run(self, action: str) -> bool:
+        """Write the ownscribe config and confirm speaker labels can be made.
+
+        Returns False when the user cancels or the config can't be written.
+        """
+        # Regenerate the ownscribe config so the token, template and model in
+        # effect always match the current settings.
+        try:
+            apply_ownscribe_config(self.settings)
+        except Exception as exc:
+            alert("Configuration failed", str(exc))
+            return False
+
+        # Diarization failures are silent -- ownscribe exits 0 with an unlabelled
+        # transcript -- so verify access before committing to a run.
+        if self.settings.diarize:
+            access = check_diarization(appconfig.read_hf_token())
+            if not access.ok:
+                return alert(
+                    "Speaker labels unavailable",
+                    f"{access.reason}\n\nThe transcript will have no speaker "
+                    f"labels. {action} anyway?",
+                    ok=action,
+                    cancel="Cancel",
+                )
+        return True
 
     def start_recording(self) -> None:
         state = self.recorder.state
@@ -188,28 +243,8 @@ class MeetingRecorderApp:
             )
             return
 
-        # Regenerate the ownscribe config so the token, template and model in
-        # effect always match the current settings.
-        try:
-            apply_ownscribe_config(self.settings)
-        except Exception as exc:
-            alert("Configuration failed", str(exc))
+        if not self._prepare_run(action="Record"):
             return
-
-        # Diarization failures are silent -- ownscribe exits 0 with an unlabelled
-        # transcript -- so verify access before committing to a recording.
-        if self.settings.diarize:
-            access = check_diarization(appconfig.read_hf_token())
-            if not access.ok:
-                proceed = alert(
-                    "Speaker labels unavailable",
-                    f"{access.reason}\n\nThe transcript will have no speaker "
-                    "labels. Record anyway?",
-                    ok="Record",
-                    cancel="Cancel",
-                )
-                if not proceed:
-                    return
 
         try:
             self.recorder.start()
@@ -245,9 +280,14 @@ class MeetingRecorderApp:
             self.shell.set_status("busy", "", state.detail or "Processing")
         elif state.phase is Phase.FAILED:
             self.shell.set_status("failed", "", f"Failed: {state.error}")
-        elif self._awaiting:
-            n = self._awaiting
-            self.shell.set_status("idle", str(n), f"{n} recording{'s' if n > 1 else ''} to save")
+        elif self._awaiting or self._unprocessed:
+            parts = [
+                f"{n} to {verb}"
+                for n, verb in ((self._unprocessed, "process"), (self._awaiting, "save"))
+                if n
+            ]
+            n = self._awaiting + self._unprocessed
+            self.shell.set_status("idle", str(n), f"Recordings: {', '.join(parts)}")
         else:
             self.shell.set_status("idle", "", "FLY")
 
@@ -271,6 +311,7 @@ class MeetingRecorderApp:
             reveal=self._api_reveal,
             dismiss=self._api_dismiss,
             record=self._api_record,
+            process=self._api_process,
             show=self._api_show,
             delete=self._api_delete,
             plan_project=self._api_plan_project,
@@ -292,14 +333,13 @@ class MeetingRecorderApp:
     def _snapshot(self) -> dict:
         """Everything the dashboard renders. Called from the server thread."""
         run = self.recorder.state
+        current = self.recorder.current_dir if run.is_active else None
         ledger = meeting_state.load_all()
         meetings = []
         for meeting in list_meetings(self.settings.resolved_output_dir, RECENT_LIMIT):
             entry = ledger.get(meeting.directory.name, meeting_state.MeetingState())
             turns = meeting.turns  # parsed once; it is re-read from disk per access
-            processing = (
-                run.is_active and run.meeting_dir == meeting.directory
-            ) or (run.is_active and run.meeting_dir is None and not meeting.has_transcript)
+            processing = current is not None and current == meeting.directory
             meetings.append(
                 {
                     "name": meeting.directory.name,
@@ -307,7 +347,9 @@ class MeetingRecorderApp:
                     "when": meeting.started.strftime("%d.%m. %H:%M") if meeting.started else "",
                     "duration": _duration(meeting),
                     "has_transcript": meeting.has_transcript,
-                    "has_audio": any(meeting.directory.glob("*.wav")),
+                    "has_audio": meeting.audio_path is not None,
+                    # A recording that is still being captured isn't waiting yet.
+                    "needs_processing": meeting.needs_processing and not processing,
                     "processing": processing,
                     # Effective speakers (after merges) drive the views; the raw
                     # ones and their samples are what the save form merges from.
@@ -349,6 +391,7 @@ class MeetingRecorderApp:
                 "mic": self.settings.mic,
                 "diarize": self.settings.diarize,
                 "keep_recording": self.settings.keep_recording,
+                "auto_process": self.settings.auto_process,
             },
         }
 
@@ -417,6 +460,7 @@ class MeetingRecorderApp:
         s.mic = bool(payload.get("mic", s.mic))
         s.diarize = bool(payload.get("diarize", s.diarize))
         s.keep_recording = bool(payload.get("keep_recording", s.keep_recording))
+        s.auto_process = bool(payload.get("auto_process", s.auto_process))
         save_settings(s)
         apply_ownscribe_config(s)
         return {"ok": True}
@@ -492,12 +536,8 @@ class MeetingRecorderApp:
         Notes already saved into projects are separate files and stay.
         """
         directory = self._meeting_directory(name)
-        run = self.recorder.state
         # Same test the list uses to show a recording as "processing".
-        if run.is_active and (
-            run.meeting_dir == directory
-            or (run.meeting_dir is None and not parse_meeting_dir(directory).has_transcript)
-        ):
+        if self.recorder.state.is_active and self.recorder.current_dir == directory:
             raise ValueError("This recording is still being processed")
         move_to_trash(directory)
         meeting_state.forget(name)
@@ -547,6 +587,17 @@ class MeetingRecorderApp:
         """Start or stop from the popover. Starting may show alerts, so it runs
         on the main thread rather than this server thread."""
         call_on_main(self.toggle_recording)
+        return {"ok": True}
+
+    def _api_process(self, name: str) -> dict:
+        """Start processing a saved recording. Hops to the main thread, like
+        recording, because it may show alerts."""
+        directory = self._meeting_directory(name)
+        if not parse_meeting_dir(directory).needs_processing:
+            raise ValueError("This recording has nothing to process")
+        if self.recorder.state.is_active:
+            raise ValueError("Wait for the current recording to finish first")
+        call_on_main(lambda: self.process_meeting(directory))
         return {"ok": True}
 
     def _api_check_update(self) -> dict:
@@ -667,8 +718,8 @@ class MeetingRecorderApp:
             title = "Transcript still processing"
             message = (
                 f"The recording is captured, but the transcript is not finished{how_far}. "
-                "Quitting now loses that work and the recording will not get a "
-                "transcript. The audio stays in the recordings folder. Quit anyway?"
+                "Quitting now loses that work. The audio stays, and you can "
+                "process it again later. Quit anyway?"
             )
         if not alert(title, message, ok="Quit", cancel="Cancel"):
             return False

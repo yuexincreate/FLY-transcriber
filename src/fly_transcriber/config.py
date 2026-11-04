@@ -85,6 +85,9 @@ class Settings:
     # Recording
     mic: bool = True
     silence_timeout: int = 300  # seconds; 0 disables auto-stop
+    # Off: stopping only saves the recording, and the user starts processing it
+    # when they choose (it ties up the Mac for minutes). On: process at once.
+    auto_process: bool = False
 
     # Diarization
     diarize: bool = True

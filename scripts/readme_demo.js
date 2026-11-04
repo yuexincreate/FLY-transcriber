@@ -31,13 +31,14 @@
     ];
     const fresh = meeting("new", D.filed?.title || "", "30.09. 10:00", 1934, D.filed?.project, {
       processing: D.phase === "busy",
-      has_transcript: D.phase !== "busy",
+      has_transcript: D.phase !== "busy" && D.phase !== "saved",
+      needs_processing: D.phase === "saved",
     });
     const run = {
       idle: { css: "idle", label: "Idle", detail: "", elapsed: "" },
       rec: { css: "recording", label: "Recording", detail: "", elapsed: clock(D.sec) },
       busy: { css: "busy", label: D.label, detail: "32:14 captured", elapsed: "32:14" },
-    }[D.phase === "ready" || D.phase === "filed" ? "idle" : D.phase];
+    }[["saved", "ready", "filed"].includes(D.phase) ? "idle" : D.phase];
     return {
       run,
       meetings: D.phase === "idle" || D.phase === "rec" ? older : [fresh, ...older],
@@ -146,7 +147,10 @@
     [800, () => pointAt($(".rec"))],
     [650, () => { D.phase = "rec"; D.sec = 0; setBar("rec", "0:00"); }],
     ...[1, 2, 3].map((s) => [650, () => { D.sec = s; setBar("rec", clock(s)); }]),
-    [700, () => { hideCursor(); D.phase = "busy"; D.label = "Transcribing"; setBar("busy"); }],
+    // Stopping saves the recording; it is processed when the user asks.
+    [900, () => { hideCursor(); D.phase = "saved"; setBar("idle", "1"); }],
+    [700, () => pointAt($(".prow"), 0.5)],
+    [700, () => { hideCursor(); $(".prow").click(); D.phase = "busy"; D.label = "Transcribing"; setBar("busy"); }],
     [1000, () => { D.label = "Diarizing"; }],
     [1500, () => { D.phase = "ready"; setBar("idle", "1"); }],
     [700, () => pointAt($(".prow"), 0.5)],

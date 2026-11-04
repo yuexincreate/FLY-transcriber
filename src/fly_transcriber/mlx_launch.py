@@ -20,11 +20,21 @@ weekly upstream workflow checks: ``WhisperXTranscriber._load_model`` sets
 ...)``, reads ``"segments"`` and ``"language"`` from the result, as from
 whisperx, and aligns only if ``_should_align()``; ``_prepare_transcription_models``
 takes ``load_align``.
+
+With ``FLY_RECORD_ONLY=1`` it only records: ``ownscribe.pipeline.run_pipeline``
+calls the module-level ``_do_transcribe_and_summarize`` after capture, and that
+is replaced with a no-op, so the meeting folder is left holding
+``recording.wav``. ``ownscribe resume <dir>`` processes it later. The MLX swap is
+skipped then: it imports whisperx (and torch), which recording doesn't need.
 """
 
 from __future__ import annotations
 
+import os
 import sys
+
+#: Printed instead of processing; ``recorder.py`` doesn't need it, people reading the log do.
+DEFERRED_MARKER = "Recording saved; processing deferred"
 
 
 def repo_for(model: str) -> str:
@@ -145,8 +155,22 @@ def _drop_alignment_notes() -> None:
     click.echo = _echo
 
 
+def defer_processing(pipeline=None) -> None:
+    """Stop ownscribe's pipeline after capture, leaving the audio for later."""
+    if pipeline is None:
+        import ownscribe.pipeline as pipeline
+
+    def _deferred(config, audio_path, out_dir, *args, **kwargs) -> None:
+        print(f"{DEFERRED_MARKER}: {audio_path}", flush=True)
+
+    pipeline._do_transcribe_and_summarize = _deferred
+
+
 def main() -> None:
-    install()
+    if os.environ.get("FLY_RECORD_ONLY") == "1":
+        defer_processing()
+    else:
+        install()
     from ownscribe.cli import cli
 
     sys.argv[0] = "ownscribe"

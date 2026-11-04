@@ -5,7 +5,7 @@
 import { html, render, useEffect, useRef, useState } from "./vendor/htm-preact-3.1.1.js";
 import {
   BRAND, BRAND_TEXT, Button, FilingFields, Icon, IconButton, Logo, Pill, RunBar, Toasts, api, awaitsFiling,
-  fmtDuration, inApp, native, status, useFilingForm, useToasts,
+  PROCESS_BUSY_HINT, fmtDuration, inApp, native, processMeeting, runBusy, status, useFilingForm, useToasts,
 } from "./common.js";
 
 const POLL_MS = 1000;
@@ -36,37 +36,45 @@ const RecordControl = ({ run, onToggle }) => {
 
 // -- list -------------------------------------------------------------------
 
-const Row = ({ meeting, onFile }) => {
+const Row = ({ meeting, onFile, onProcess, busy }) => {
   const st = status(meeting);
   const waiting = awaitsFiling(meeting);
   const projects = [...new Set(meeting.filed.map((f) => f.project))];
   const meta = [meeting.when, meeting.duration ? fmtDuration(meeting.duration) : null]
     .filter(Boolean).join(" · ");
+  const unprocessed = meeting.needs_processing;
   const action = waiting
     ? () => onFile(meeting)
-    : meeting.has_transcript && !meeting.processing
+    : unprocessed
+      ? busy ? null : () => onProcess(meeting)
+      : meeting.has_transcript && !meeting.processing
       ? () => open(`#/r/${encodeURIComponent(meeting.name)}`)
       : null;
 
   return html`
     <li>
       <button type="button" class="prow" disabled=${!action} onClick=${action}
-        title=${waiting ? "Save this recording" : action ? "Open transcript" : ""}>
+        title=${waiting ? "Save this recording"
+          : unprocessed ? (busy ? PROCESS_BUSY_HINT : "Transcribe this recording")
+          : action ? "Open transcript" : ""}>
         <span class="prow-main">
           <span class="prow-title">${meeting.title || "Untitled recording"}</span>
           <span class="prow-meta">
             ${meta}${projects.length > 0 && html`<span class="prow-filed"> → ${projects.join(", ")}</span>`}
           </span>
         </span>
-        <${Pill} tone=${st.tone}>${waiting ? "Save" : st.label}<//>
+        <${Pill} tone=${st.tone}>${waiting ? "Save" : unprocessed ? "Process" : st.label}<//>
         ${action && html`<span class="prow-chevron"><${Icon} name="chevron" size=${14} /></span>`}
       </button>
     </li>`;
 };
 
-const ListView = ({ state, run, onFile, onToggle }) => {
+const ListView = ({ state, run, onFile, onProcess, onToggle }) => {
   const meetings = state.meetings.slice(0, LIMIT);
   const waiting = state.meetings.filter(awaitsFiling).length;
+  const unprocessed = state.meetings.filter((m) => m.needs_processing).length;
+  const aside = [unprocessed && `${unprocessed} to process`, waiting && `${waiting} to save`]
+    .filter(Boolean).join(" · ");
   return html`
     <header class="phead">
       <span class="pbrand">
@@ -82,11 +90,12 @@ const ListView = ({ state, run, onFile, onToggle }) => {
     <section>
       <div class="psection">
         <h3>Recent</h3>
-        ${waiting > 0 && html`<span class="psection-aside">${waiting} to save</span>`}
+        ${aside && html`<span class="psection-aside">${aside}</span>`}
       </div>
       ${meetings.length
-        ? html`<ul class="plist">${meetings.map((m) => html`<${Row} key=${m.name} meeting=${m} onFile=${onFile} />`)}</ul>`
-        : html`<p class="pempty">No recordings yet. Finished transcripts show up here.</p>`}
+        ? html`<ul class="plist">${meetings.map((m) => html`<${Row} key=${m.name} meeting=${m}
+            onFile=${onFile} onProcess=${onProcess} busy=${runBusy(run)} />`)}</ul>`
+        : html`<p class="pempty">No recordings yet. Finished recordings show up here.</p>`}
     </section>
 
     <footer class="pfoot">
@@ -193,7 +202,8 @@ function App() {
           ? html`<${FilingView} key=${filing} meeting=${meeting} projects=${state.projects}
               toast=${toast} onDone=${() => setFiling(null)} />`
           : html`<${ListView} state=${state} run=${run} onToggle=${toggle}
-              onFile=${(m) => setFiling(m.name)} />`}
+              onFile=${(m) => setFiling(m.name)}
+              onProcess=${(m) => processMeeting(m, toast, refresh)} />`}
     </div>
     <${Toasts} toasts=${toasts} />`;
 }

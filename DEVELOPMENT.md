@@ -19,8 +19,21 @@ The app is a thin front-end for the [ownscribe](https://github.com/paberr/ownscr
 CLI, which it runs as a subprocess. A few details are worth knowing if you work
 on it:
 
-- **Stop sends `SIGINT`.** That ends capture and *starts* processing. Quitting
-  during a recording asks first, because that really does discard it.
+- **Stop sends `SIGINT`.** That ends capture. Quitting during a recording asks
+  first, because that really does discard it.
+- **Processing waits for the user, unless `auto_process` is on.** Transcription
+  and diarization tie up the Mac for minutes, so by default stopping only saves
+  `recording.wav` in the meeting folder and the user presses Process later.
+  ownscribe has no record-only mode, so the recording runs through
+  `mlx_launch.py` with `FLY_RECORD_ONLY=1`, which swaps
+  `ownscribe.pipeline._do_transcribe_and_summarize` for a no-op (and skips the
+  MLX patch, so whisperx and torch aren't imported just to record). Process runs
+  `ownscribe resume <folder>`, which finds the audio, transcribes it with the
+  settings from the generated config, and deletes the WAV afterwards unless
+  recordings are kept. A failed or cancelled run leaves the audio, so it can be
+  processed again. Without ownscribe's own Python (the `uvx` fallback) there is
+  no launcher, and recordings process at once as before. One run at a time:
+  you can't record while processing, or the reverse.
 - **Speaker turns come from ownscribe's JSON, not its markdown.** The markdown
   gives a whole segment to one speaker, which hides turn changes inside it,
   while the JSON keeps a speaker for every word. Segments are split where the

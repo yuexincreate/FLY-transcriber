@@ -3,8 +3,10 @@
 ownscribe is driven as a subprocess rather than imported. Two reasons:
 
 * Stopping a recording is a ``SIGINT`` -- the same thing Ctrl+C does. The signal
-  ends capture and *starts* transcription and summarization, so stop is a
+  ends capture and, with ``auto_process``, *starts* transcription, so stop is a
   graceful handoff, not a kill. That is far simpler across a process boundary.
+  Without ``auto_process`` the run ends after capture (see ``mlx_launch.py``)
+  and :meth:`Recorder.process` runs ``ownscribe resume`` on the folder later.
 * The CLI is a stable contract; ownscribe's internals are not.
 """
 
@@ -129,6 +131,23 @@ def ownscribe_command(engine: str = "mlx") -> tuple[list[str], str]:
     return base, "faster-whisper"
 
 
+#: macOS refused ScreenCaptureKit, which captures the system audio.
+_CAPTURE_DENIED = ("SCStreamErrorDomain Code=-3801", "declined TCCs")
+
+
+def failure_reason(output: str) -> str:
+    """A readable cause for a failed run, from the end of ownscribe's output."""
+    if any(marker in output for marker in _CAPTURE_DENIED):
+        return (
+            "macOS blocked audio capture. Allow the app that started FLY in System "
+            "Settings → Privacy & Security → Screen & System Audio Recording, then "
+            "restart it."
+        )
+    lines = [ln.strip() for ln in output.replace("\r", "\n").splitlines()]
+    errors = [ln for ln in lines if ln.startswith("Error:")]
+    return errors[-1].removeprefix("Error:").strip() if errors else ""
+
+
 class Recorder:
     """Runs one ownscribe pipeline at a time and tracks its progress."""
 
@@ -148,7 +167,11 @@ class Recorder:
     # -- public API ----------------------------------------------------------
 
     def start(self) -> None:
-        """Begin recording. Raises if a run is already active."""
+        """Begin recording. Raises if a run is already active.
+
+        Unless ``auto_process`` is on, the run ends when capture does and leaves
+        the audio for :meth:`process`.
+        """
         with self._lock:
             if self.state.is_active:
                 raise RuntimeError("A recording is already in progress")
@@ -160,8 +183,65 @@ class Recorder:
         # ownscribe renames it to include a generated title once it has a summary.
         self._known_dirs = {p for p in out_dir.iterdir() if p.is_dir()}
 
-        prefix, self._engine = ownscribe_command(self._settings.engine)
-        cmd = [*prefix, *self._cli_args()]
+        cmd, env, self._engine = self.record_command()
+        self._launch(cmd, env)
+
+    def process(self, meeting_dir: Path, audio_seconds: float = 0.0) -> None:
+        """Transcribe and diarize a recording made earlier, via ``ownscribe resume``."""
+        with self._lock:
+            if self.state.is_active:
+                raise RuntimeError("A recording is already in progress")
+            prefix, self._engine = ownscribe_command(self._settings.engine)
+            now = time.time()
+            self.state = RunState(
+                phase=Phase.TRANSCRIBING,
+                elapsed=int(audio_seconds),
+                detail="Transcribing",
+                meeting_dir=meeting_dir,
+                started_at=now,
+                processing_started_at=now,
+                processing_eta=progress.predict(int(audio_seconds), self._engine),
+            )
+        self._known_dirs = set()
+        self._launch([*prefix, *self.process_args(meeting_dir)], None)
+
+    def record_command(self) -> tuple[list[str], dict | None, str]:
+        """The command for a new recording, its environment, and its engine.
+
+        Record-only runs go through the launcher, which stops ownscribe after
+        capture. Without ownscribe's own Python (the ``uvx`` fallback) there is
+        no launcher, so that run processes at once, as it always did.
+        """
+        args = self._cli_args()
+        if not self._settings.auto_process:
+            base = resolve_ownscribe()
+            python = ownscribe_python(base[0]) if len(base) == 1 else None
+            if python:
+                env = {**os.environ, "FLY_RECORD_ONLY": "1"}
+                return [python, "-P", str(MLX_LAUNCHER), *args], env, "none"
+        prefix, engine = ownscribe_command(self._settings.engine)
+        return [*prefix, *args], None, engine
+
+    def process_args(self, meeting_dir: Path) -> list[str]:
+        """``resume`` takes the model and language as flags; the rest (diarization,
+        JSON output, keep_recording) comes from the generated config."""
+        s = self._settings
+        # ownscribe runs from the models directory, so the folder must be absolute.
+        args = ["resume", str(meeting_dir.expanduser().resolve()), "--model", s.model]
+        if s.language:
+            args += ["--language", s.language]
+        return args
+
+    @property
+    def current_dir(self) -> Path | None:
+        """The meeting folder the active run is writing, once it exists."""
+        if self.state.meeting_dir is not None:
+            return self.state.meeting_dir
+        if self.state.is_active:
+            return self._find_meeting_dir()
+        return None
+
+    def _launch(self, cmd: list[str], env: dict | None) -> None:
         self._proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -174,12 +254,14 @@ class Recorder:
             # Run from the models directory so pyannote finds the local speaker
             # model by its hub name instead of downloading the gated original.
             cwd=MODELS_DIR if has_local_model() else None,
+            env=env,
         )
         threading.Thread(target=self._pump_output, daemon=True).start()
         self._emit()
 
     def stop(self) -> None:
-        """Stop recording and let transcription + summarization run.
+        """Stop recording; ownscribe saves the audio and, with ``auto_process``,
+        goes on to transcribe it.
 
         This is the graceful path: SIGINT is exactly what Ctrl+C sends.
         """
@@ -254,6 +336,7 @@ class Recorder:
                 self._interpret(buffer)
                 buffer = buffer[-4000:]
         finally:
+            self._output_tail = buffer
             self._finish(proc.wait())
 
     def _interpret(self, text: str) -> None:
@@ -302,7 +385,8 @@ class Recorder:
             self._emit()
 
     def _finish(self, returncode: int) -> None:
-        self.state.meeting_dir = self._find_meeting_dir()
+        if self.state.meeting_dir is None:
+            self.state.meeting_dir = self._find_meeting_dir()
         if returncode == 0:
             if self.state.processing_started_at is not None:
                 progress.record(
@@ -311,10 +395,14 @@ class Recorder:
                     self._engine,
                 )
             self.state.phase = Phase.DONE
-            self.state.detail = "Complete"
+            # No processing markers: a record-only run, waiting to be processed.
+            processed = self.state.processing_started_at is not None
+            self.state.detail = "Complete" if processed else "Recording saved"
         else:
             self.state.phase = Phase.FAILED
-            self.state.error = f"ownscribe exited with code {returncode}"
+            self.state.error = failure_reason(getattr(self, "_output_tail", "")) or (
+                f"ownscribe exited with code {returncode}"
+            )
             self.state.detail = self.state.error
         self._emit()
 

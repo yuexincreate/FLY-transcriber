@@ -1,10 +1,10 @@
 # The app pins ownscribe to 0.15.x, but not what ownscribe pulls in (whisperx,
 # pyannote, torch). A new release of any of them can break a fresh install
 # while existing ones keep working, so this installs from scratch every week
-# and checks the two things that rely on their internals: the local speaker
-# model loads by its hub name when run from the models folder (and only then),
-# and ownscribe still loads, calls and aligns Whisper where the MLX launcher
-# patches it.
+# and checks the things that rely on their internals: the local speaker model
+# loads by its hub name when run from the models folder (and only then),
+# ownscribe still loads, calls and aligns Whisper where the MLX launcher
+# patches it, and its pipeline can still be stopped after capture.
 
 name: upstream
 
@@ -77,4 +77,16 @@ jobs:
           mlx_launch.install()
           assert W._should_align(object.__new__(W)) is False
           assert W._load_model.__module__ == 'mlx_launch'
+          "
+      - name: ownscribe's pipeline can stop after capture and resume later
+        run: |
+          "$(uv tool dir)/ownscribe/bin/python" -P -c "
+          import inspect, sys
+          import ownscribe.pipeline as p
+          sys.path.insert(0, 'src/fly_transcriber')
+          import mlx_launch
+          assert '_do_transcribe_and_summarize(config, audio_path, out_dir)' in inspect.getsource(p.run_pipeline)
+          assert '_do_transcribe_and_summarize(' in inspect.getsource(p.run_resume)
+          mlx_launch.defer_processing()
+          assert p._do_transcribe_and_summarize.__module__ == 'mlx_launch'
           "

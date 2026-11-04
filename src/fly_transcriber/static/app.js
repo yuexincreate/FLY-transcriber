@@ -3,7 +3,7 @@ import { html, render, useEffect, useMemo, useRef, useState } from "./vendor/htm
 import {
   BRAND, BRAND_TEXT, Avatar, Button, Empty, Field, FilingFields, Icon, IconButton, Logo, Pill,
   RunBar, Switch, Toasts, api, awaitsFiling, fmtDuration, speakerHue, speakerName, status,
-  useFilingForm, useToasts,
+  useFilingForm, useToasts, PROCESS_BUSY_HINT, processMeeting, runBusy,
 } from "./common.js";
 
 const POLL_MS = 1000;
@@ -105,7 +105,13 @@ const TopBar = ({ route, run, onToggle }) => {
 
 // -- recordings list --------------------------------------------------------
 
-const RecordingRow = ({ meeting, onFile, onDelete }) => {
+/** Starts transcribing a recording that was saved without processing. */
+const ProcessButton = ({ meeting, busy, toast, refresh, size, onClick }) => html`
+  <${Button} size=${size} variant="primary" disabled=${busy}
+    title=${busy ? PROCESS_BUSY_HINT : "Transcribe and label speakers"}
+    onClick=${(e) => { onClick?.(e); processMeeting(meeting, toast, refresh); }}>Process<//>`;
+
+const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh }) => {
   const st = status(meeting);
   const canAct = meeting.has_transcript && !meeting.processing;
   const meta = [meeting.when, meeting.duration ? fmtDuration(meeting.duration) : null];
@@ -126,6 +132,9 @@ const RecordingRow = ({ meeting, onFile, onDelete }) => {
       </div>
       <${Pill} tone=${st.tone}>${st.label}<//>
       <div class="row-actions">
+        ${meeting.needs_processing && html`
+          <${ProcessButton} size="sm" meeting=${meeting} busy=${busy} toast=${toast} refresh=${refresh}
+            onClick=${(e) => e.stopPropagation()} />`}
         ${canAct && html`
           <${Button} size="sm" variant=${meeting.filed.length ? "secondary" : "primary"}
             onClick=${stop(() => onFile(meeting))}>${meeting.filed.length ? "Edit" : "Save"}<//>`}
@@ -179,8 +188,11 @@ const DeleteDialog = ({ meeting, onClose, onDeleted, toast }) => {
     </dialog>`;
 };
 
-const RecordingsView = ({ meetings, onFile, toast }) => {
+const RecordingsView = ({ meetings, onFile, toast, refresh, busy }) => {
   const unfiled = meetings.filter(awaitsFiling).length;
+  const unprocessed = meetings.filter((m) => m.needs_processing).length;
+  const waiting = [unprocessed && `${unprocessed} waiting to be processed`, unfiled && `${unfiled} waiting to be saved`]
+    .filter(Boolean).join(", ");
   const [deleting, setDeleting] = useState(null);
   return html`
     <section class="page">
@@ -189,17 +201,18 @@ const RecordingsView = ({ meetings, onFile, toast }) => {
           <h1>Recordings</h1>
           <p class="subtle">
             ${meetings.length
-              ? unfiled ? `${unfiled} waiting to be saved` : "Everything is saved"
+              ? waiting || "Everything is saved"
               : "Start a recording from the top right, or from the FLY icon in the menubar"}
           </p>
         </div>
       </div>
       ${meetings.length
         ? html`<ul class="list">
-            ${meetings.map((m) => html`<${RecordingRow} key=${m.name} meeting=${m} onFile=${onFile} onDelete=${setDeleting} />`)}
+            ${meetings.map((m) => html`<${RecordingRow} key=${m.name} meeting=${m} onFile=${onFile}
+              onDelete=${setDeleting} busy=${busy} toast=${toast} refresh=${refresh} />`)}
           </ul>`
         : html`<${Empty} title="No recordings yet">
-            Click Start recording at the top right, or the FLY icon in the menubar. Finished transcripts show up here.
+            Click Start recording at the top right, or the FLY icon in the menubar. Finished recordings show up here.
           <//>`}
       ${deleting && html`<${DeleteDialog} meeting=${deleting} toast=${toast} onClose=${() => setDeleting(null)} />`}
     </section>`;
@@ -325,7 +338,7 @@ const SpeakerListItem = ({ label, meeting, toast, refresh }) => {
     </li>`;
 };
 
-const RecordingView = ({ meeting, onFile, toast, refresh }) => {
+const RecordingView = ({ meeting, onFile, toast, refresh, busy }) => {
   const [detail, error] = useDetail(meeting);
   const [deleting, setDeleting] = useState(false);
   if (!meeting) {
@@ -353,6 +366,8 @@ const RecordingView = ({ meeting, onFile, toast, refresh }) => {
           <${IconButton} icon="folder" label="Show in Finder" onClick=${reveal} />
           ${!meeting.processing && html`
             <${IconButton} icon="trash" label="Delete recording" onClick=${() => setDeleting(true)} />`}
+          ${meeting.needs_processing && html`
+            <${ProcessButton} meeting=${meeting} busy=${busy} toast=${toast} refresh=${refresh} />`}
           ${canAct && html`
             <${Button} icon="copy" onClick=${() => copyTranscript(meeting, toast)}>Copy<//>
             <${Button} variant="primary" onClick=${() => onFile(meeting)}>
@@ -365,6 +380,10 @@ const RecordingView = ({ meeting, onFile, toast, refresh }) => {
         <div class="card detail-main">
           ${meeting.processing
             ? html`<${Empty} title="Still processing">The transcript appears here when it is ready.<//>`
+            : meeting.needs_processing
+              ? html`<${Empty} title="Not processed yet">
+                  The audio is saved. Press Process to transcribe it and label the speakers. It takes a few minutes, and you can record again once it has finished.
+                <//>`
             : !meeting.has_transcript
               ? html`<${Empty} title="No transcript">This recording produced no transcript.<//>`
               : error
@@ -396,7 +415,7 @@ const RecordingView = ({ meeting, onFile, toast, refresh }) => {
                 </ul>`
               : html`<p class="subtle">Not saved yet.</p>`}
             <h3>Files</h3>
-            <p class="subtle">${meeting.has_audio ? "Audio kept" : "Audio discarded"} · <code>${meeting.name}</code></p>
+            <p class="subtle">${meeting.needs_processing ? "Audio waiting to be processed" : meeting.has_audio ? "Audio kept" : "Audio discarded"} · <code>${meeting.name}</code></p>
           </div>
         </aside>
       </div>
@@ -1009,6 +1028,9 @@ const SettingsView = ({ settings, projects, adding, refresh, toast, version }) =
         <h2>Recording</h2>
         <${Switch} label="Capture microphone" hint="In addition to system audio."
           checked=${draft.mic} onChange=${set("mic")} />
+        <${Switch} label="Process recordings automatically"
+          hint="Off: stopping saves the recording, and you press Process when you want the transcript. On: processing starts as soon as you stop."
+          checked=${draft.auto_process} onChange=${set("auto_process")} />
         <${Switch} label="Keep audio files" hint="About 300 MB per hour. Needed to re-run diarization later."
           checked=${draft.keep_recording} onChange=${set("keep_recording")} />
         <div class="grid-2">
@@ -1095,8 +1117,8 @@ function App() {
     page = html`<${SettingsView} settings=${state.settings} projects=${projects}
       adding=${route.adding} refresh=${refresh} toast=${toast} version=${state.version} />`;
   }
-  else if (route.view === "recording") page = html`<${RecordingView} meeting=${byName[route.name]} onFile=${(m) => setFiling(m.name)} toast=${toast} refresh=${refresh} />`;
-  else page = html`<${RecordingsView} meetings=${meetings} onFile=${(m) => setFiling(m.name)} toast=${toast} />`;
+  else if (route.view === "recording") page = html`<${RecordingView} meeting=${byName[route.name]} onFile=${(m) => setFiling(m.name)} toast=${toast} refresh=${refresh} busy=${runBusy(run)} />`;
+  else page = html`<${RecordingsView} meetings=${meetings} onFile=${(m) => setFiling(m.name)} toast=${toast} refresh=${refresh} busy=${runBusy(run)} />`;
 
   return html`
     <${TopBar} route=${route} run=${run} onToggle=${toggleRecording} />
