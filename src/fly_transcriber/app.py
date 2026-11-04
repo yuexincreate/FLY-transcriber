@@ -54,7 +54,7 @@ def app_version() -> str:
 
 #: Matches install.sh's REPO; raw.githubusercontent.com lets install.sh run
 #: without git (a fresh Mac's stub prompts to install developer tools).
-UPDATE_REPO = "mokulawa/FLY-transcriber"
+UPDATE_REPO = "yuexincreate/FLY-transcriber"
 UPDATE_INSTALL_URL = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/install.sh"
 UPDATE_LOG = Path("~/.local/share/fly-transcriber/update.log").expanduser()
 

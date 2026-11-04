@@ -20,7 +20,7 @@ sh -n install.sh                             # syntax-check the installer (it in
 
 No linter or type-checker is configured. CI (`.github/workflows/`) runs the tests on macOS for every push, and weekly checks that a fresh install of the pinned ownscribe still loads the local speaker model and still has the hooks `mlx_launch.py` patches. Runtime needs macOS 14.2+ on Apple Silicon and `ownscribe` 0.15.x with mlx-whisper (`uv tool install 'ownscribe>=0.15,<0.16' --with mlx-whisper==0.4.3`; without it, transcription falls back to the CPU).
 
-Naming: the product is **FLY-transcriber** (this is the fork `mokulawa/FLY-transcriber` of `tuomasharkonen-ux/FLY-transcriber`; the installer and in-app updater use the fork's tags, the speaker model still comes from the original's `speaker-model-v1` release; dashboard brand "FLY — Faithful Logger of Yapping"); the Python package/command/dirs are lowercase `fly-transcriber` / `fly_transcriber`. It was called `local-meeting-recorder` until 2026-09-29; the local checkout directory still has that name.
+Naming: the product is **FLY-transcriber** (this is the fork `yuexincreate/FLY-transcriber` of `tuomasharkonen-ux/FLY-transcriber`; the installer and in-app updater use the fork's tags, the speaker model still comes from the original's `speaker-model-v1` release; dashboard brand "FLY — Faithful Logger of Yapping"); the Python package/command/dirs are lowercase `fly-transcriber` / `fly_transcriber`. It was called `local-meeting-recorder` until 2026-09-29; the local checkout directory still has that name.
 
 ## What this is
 

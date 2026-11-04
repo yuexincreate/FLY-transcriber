@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installer for FLY-transcriber.
 #
-#   curl -LsSf https://raw.githubusercontent.com/mokulawa/FLY-transcriber/main/install.sh | sh
+#   curl -LsSf https://raw.githubusercontent.com/yuexincreate/FLY-transcriber/main/install.sh | sh
 #
 # Installs uv (if missing), ownscribe and the app (which brings its own ffmpeg),
 # the speaker model (no HuggingFace account needed) and the speech models, then
@@ -30,7 +30,7 @@ set -eu
 # and the install would stop silently halfway. Needs no Homebrew and no git
 # (on a fresh Mac, git is a stub that asks to install the developer tools).
 
-REPO="${FLY_REPO:-https://github.com/mokulawa/FLY-transcriber}"
+REPO="${FLY_REPO:-https://github.com/yuexincreate/FLY-transcriber}"
 LABEL="io.github.fly-transcriber"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 BIN_DIR="$HOME/.local/bin"
@@ -464,7 +464,7 @@ cat <<'EOF'
 You can close this window now.
 
 To uninstall FLY later, run:
-  curl -LsSf https://raw.githubusercontent.com/mokulawa/FLY-transcriber/main/install.sh | sh -s -- --uninstall
+  curl -LsSf https://raw.githubusercontent.com/yuexincreate/FLY-transcriber/main/install.sh | sh -s -- --uninstall
 EOF
 }
 

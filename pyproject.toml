@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/mokulawa/FLY-transcriber"
+Repository = "https://github.com/yuexincreate/FLY-transcriber"
 
 [project.scripts]
 fly-transcriber = "fly_transcriber.app:main"

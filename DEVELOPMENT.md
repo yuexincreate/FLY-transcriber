@@ -1,7 +1,7 @@
 # Developing FLY
 
 ```bash
-git clone https://github.com/mokulawa/FLY-transcriber
+git clone https://github.com/yuexincreate/FLY-transcriber
 cd FLY-transcriber
 uv run fly-transcriber                      # run from source
 uv run pytest                               # tests
