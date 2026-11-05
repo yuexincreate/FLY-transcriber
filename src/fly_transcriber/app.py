@@ -651,8 +651,12 @@ class MeetingRecorderApp:
             log.write(f"\n== Update from FLY v{app_version()}, {stamp} ==\n".encode())
             log.flush()
             self._update_offset = log.tell()
+            # `arch -arm64`: if FLY was started under Rosetta (an older FLY.app
+            # launcher did), its children inherit Intel mode and install.sh
+            # refuses to run.
             self._update_proc = subprocess.Popen(
-                ["/bin/sh", "-c", f"curl -fsSL {UPDATE_INSTALL_URL} | sh"],
+                ["/usr/bin/arch", "-arm64", "/bin/sh", "-c",
+                 f"curl -fsSL {UPDATE_INSTALL_URL} | sh"],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )

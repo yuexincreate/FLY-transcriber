@@ -96,10 +96,14 @@ def _build(directory: Path, tool: Path) -> Path:
         # LaunchServices launched for this bundle, macOS never shows its menubar
         # icon (seen on macOS 26; the cause is unknown). The script exits at
         # once, which is fine -- a second launch finds the running app itself.
+        # `arch -arm64`: a bundle whose executable is a script has no
+        # architecture of its own, so LaunchServices may start it under Rosetta,
+        # and the Intel preference is inherited by everything FLY starts -- the
+        # in-app update's install.sh then refused to run ("Intel mode").
         script.write_text(
             "#!/bin/sh\n"
             "# Starts FLY, or brings up the running one.\n"
-            f"nohup {_tool_command(tool)} --show >/dev/null 2>&1 &\n",
+            f"nohup /usr/bin/arch -arm64 {_tool_command(tool)} --show >/dev/null 2>&1 &\n",
             encoding="utf-8",
         )
         script.chmod(0o755)
@@ -119,6 +123,7 @@ def _build(directory: Path, tool: Path) -> Path:
                     "CFBundleShortVersionString": "1",
                     "LSMinimumSystemVersion": "14.2",
                     "LSUIElement": True,  # the app draws its own menubar icon
+                    "LSArchitecturePriority": ["arm64"],  # never under Rosetta
                 },
                 handle,
             )
