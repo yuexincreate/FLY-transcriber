@@ -568,6 +568,12 @@ select.input {
   color: var(--text-3); background: var(--surface);
 }
 .plan-new { color: var(--ok); background: var(--ok-soft); }
+.plan-side { display: flex; align-items: center; gap: 10px; }
+.plan-off code, .plan-off .icon { opacity: 0.45; }
+.plan-off code { text-decoration: line-through; }
+.switch-sm { width: 30px; height: 18px; }
+.switch-sm::after { width: 14px; height: 14px; }
+.switch-sm:checked::after { transform: translateX(12px); }
 .plan-note { font-size: 12.5px; color: var(--warn); background: var(--warn-soft); padding: 8px 10px; border-radius: var(--r-sm); }
 
 .savebar {
@@ -625,17 +631,13 @@ select.input {
 /* -- footer ---------------------------------------------------------------- */
 
 .footer {
-  display: grid; justify-items: center; gap: 4px;
-  width: 100%; max-width: 960px; margin: 0 auto; padding: 32px 24px 48px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  width: 100%; max-width: 960px; margin: 0 auto; padding: 12px 24px;
   border-top: 1px solid var(--line);
   color: var(--text-3);
 }
-.footer .logo { width: 40px; height: 40px; margin-bottom: 6px; }
-.footer-name { color: var(--text); font-size: 15px; font-weight: 750; letter-spacing: 0.08em; }
-.footer-expansion { display: flex; gap: 0.3em; font-size: 13px; }
-.footer-expansion strong { color: var(--text-2); font-weight: 650; }
-.footer-version { margin-top: 6px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
-.footer-expansion .filler { font-style: italic; }
+.footer-quit { color: var(--text-3); margin-right: -10px; }
+.footer-version { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* -- narrow windows -------------------------------------------------------- */
 

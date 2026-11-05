@@ -3,13 +3,7 @@ import { html, useCallback, useState } from "./vendor/htm-preact-3.1.1.js";
 
 const SPEAKER_HUES = 6;
 
-export const BRAND = {
-  name: "FLY",
-  // The acronym letters; "of" is filler and rendered as such.
-  expansion: [["F", "aithful"], ["L", "ogger"], "of", ["Y", "apping"]],
-};
-
-export const BRAND_TEXT = BRAND.expansion.map((w) => (Array.isArray(w) ? w.join("") : w)).join(" ");
+export const BRAND = { name: "FLY" };
 
 
 // -- helpers ----------------------------------------------------------------

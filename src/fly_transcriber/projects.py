@@ -16,7 +16,7 @@ from pathlib import Path
 #: Filename conventions.
 #:  ``vault``     -> ``28-09-26-meeting-title.md`` (dd-mm-yy)
 #:  ``timestamp`` -> ``2026-09-28_1420_meeting-title.md`` (sorts chronologically)
-NAMING_STYLES = ("vault", "timestamp")
+NAMING_STYLES = ("vault", "yymmdd", "timestamp")
 
 #: Frontmatter shapes. ``obsidian`` is a slim vault-note template (dd-mm-yy
 #: date, tags, a banner for the agent); ``generic`` is the tool's own format.
@@ -159,19 +159,27 @@ def _bundled_skill() -> str:
 
 
 def install_agent_files(
-    base: Path, name: str, inbox: str = DEFAULT_INBOX
+    base: Path,
+    name: str,
+    inbox: str = DEFAULT_INBOX,
+    *,
+    instructions: bool = True,
+    skill: bool = True,
 ) -> list[Path]:
-    """Write ``CLAUDE.md`` and the meeting skill into project root ``base``.
+    """Write ``CLAUDE.md`` and/or the meeting skill into project root ``base``.
 
     Returns the files written. Existing files are never overwritten: a project
     that already has agent instructions or its own version of the skill keeps
-    them.
+    them. ``skill=False`` suits someone with the skill installed user-wide.
     """
     written: list[Path] = []
-    targets = [
-        (base / "CLAUDE.md", AGENT_INSTRUCTIONS.format(name=name, inbox=inbox, skill=SKILL_NAME)),
-        (base / SKILL_RELPATH, _bundled_skill()),
-    ]
+    targets = []
+    if instructions:
+        targets.append(
+            (base / "CLAUDE.md", AGENT_INSTRUCTIONS.format(name=name, inbox=inbox, skill=SKILL_NAME))
+        )
+    if skill:
+        targets.append((base / SKILL_RELPATH, _bundled_skill()))
     for path, content in targets:
         if path.exists():
             continue
@@ -220,6 +228,10 @@ class PlanStep:
     kind: str  # "folder" | "file"
     exists: bool
     purpose: str
+    #: Which switch in the setup form turns this step off ("" = always done).
+    key: str = ""
+    #: False when the user switched it off: shown, but not done.
+    included: bool = True
 
 
 @dataclass
@@ -232,8 +244,13 @@ class ProjectPlan:
     #: Things worth knowing that are not files, e.g. an existing CLAUDE.md
     #: that will not mention a custom inbox.
     notes: list[str] = field(default_factory=list)
-    agent_files: bool = True
+    instructions: bool = True
+    skill: bool = True
     inbox: str = DEFAULT_INBOX
+
+    @property
+    def included_steps(self) -> list[PlanStep]:
+        return [s for s in self.steps if s.included]
 
 
 def _clean_inbox(inbox: str) -> str:
@@ -253,13 +270,22 @@ def plan_project(
     agent_files: bool = True,
     naming: str = "vault",
     frontmatter: str = "generic",
+    use_inbox: bool = True,
+    instructions: bool | None = None,
+    skill: bool | None = None,
 ) -> ProjectPlan:
     """Work out what adding a project would create, without touching disk.
 
     ``new`` creates a folder named after the project inside ``folder``;
     otherwise ``folder`` is an existing project root (a vault, a repository).
+    ``use_inbox``, ``instructions`` and ``skill`` switch single steps off
+    (the latter two default to ``agent_files``); a switched-off step stays in
+    ``steps`` with ``included=False`` so the form can offer to switch it back
+    on. With ``use_inbox`` off, transcripts go into the project folder itself.
     Raises ``ValueError`` with a message meant for the user.
     """
+    instructions = agent_files if instructions is None else instructions
+    skill = agent_files if skill is None else skill
     name = name.strip()
     if not name:
         raise ValueError("Give the project a name")
@@ -269,6 +295,9 @@ def plan_project(
     if not location.is_absolute():
         raise ValueError("Use a full path, like ~/Documents")
     inbox = _clean_inbox(inbox)
+    skipped_inbox = "" if use_inbox else inbox
+    if not use_inbox:
+        inbox = ""
     if naming not in NAMING_STYLES:
         raise ValueError(f"Unknown filename style {naming!r}")
     if frontmatter not in FRONTMATTER_STYLES:
@@ -295,33 +324,49 @@ def plan_project(
     steps: list[PlanStep] = []
     if new:
         steps.append(PlanStep(root, "folder", False, "The project folder"))
-    if inbox:
+    if inbox or skipped_inbox:
+        folder_path = root / (inbox or skipped_inbox)
         steps.append(PlanStep(
-            target, "folder", target.is_dir(),
-            "Saved transcripts land here, one markdown file per meeting",
+            folder_path, "folder", folder_path.is_dir(),
+            "Saved transcripts land here, one markdown file per meeting"
+            if use_inbox else
+            "Off: transcripts are saved straight into the project folder",
+            key="inbox", included=use_inbox,
         ))
 
+    claude_md, skill_md = root / "CLAUDE.md", root / SKILL_RELPATH
+    steps.append(PlanStep(
+        claude_md, "file", claude_md.exists(),
+        "Tells an AI agent working in this folder where transcripts land "
+        "and how to turn them into notes",
+        key="instructions", included=instructions,
+    ))
+    steps.append(PlanStep(
+        skill_md, "file", skill_md.exists(),
+        "The step-by-step skill the agent follows to process a transcript"
+        if skill else
+        "Off: use this when the fly-summarise skill is installed for your "
+        "user (~/.claude/skills/) rather than per project",
+        key="skill", included=skill,
+    ))
+
     notes: list[str] = []
-    if agent_files:
-        instructions, skill = root / "CLAUDE.md", root / SKILL_RELPATH
-        steps.append(PlanStep(
-            instructions, "file", instructions.exists(),
-            "Tells an AI agent working in this folder where transcripts land "
-            "and how to turn them into notes",
-        ))
-        steps.append(PlanStep(
-            skill, "file", skill.exists(),
-            "The step-by-step skill the agent follows to process a transcript",
-        ))
-        if instructions.exists() and inbox != DEFAULT_INBOX:
+    if inbox != DEFAULT_INBOX:
+        where = f"{inbox}/" if inbox else "the project folder"
+        if claude_md.exists() and (instructions or skill):
             notes.append(
                 f"Your CLAUDE.md is kept as it is. Add a line telling the agent "
-                f"that transcripts land in {inbox or 'the project root'}/, since "
-                f"the skill otherwise looks in {DEFAULT_INBOX}/."
+                f"that transcripts land in {where}, since the skill otherwise "
+                f"looks in {DEFAULT_INBOX}/."
+            )
+        elif not claude_md.exists() and not instructions and skill:
+            notes.append(
+                f"Without a CLAUDE.md, nothing tells the agent that transcripts "
+                f"land in {where}; the skill otherwise looks in {DEFAULT_INBOX}/."
             )
 
     project = Project(name=name, path=str(target), naming=naming, frontmatter=frontmatter)
-    return ProjectPlan(project, root, steps, notes, agent_files, inbox)
+    return ProjectPlan(project, root, steps, notes, instructions, skill, inbox)
 
 
 def plan_from_request(payload: dict, existing: list[Project]) -> ProjectPlan:
@@ -334,6 +379,9 @@ def plan_from_request(payload: dict, existing: list[Project]) -> ProjectPlan:
         agent_files=bool(payload.get("agent_files", True)),
         naming=str(payload.get("naming") or "vault"),
         frontmatter=str(payload.get("frontmatter") or "generic"),
+        use_inbox=bool(payload.get("use_inbox", True)),
+        instructions=_optional_bool(payload.get("instructions")),
+        skill=_optional_bool(payload.get("skill")),
     )
     for other in existing:
         if other.name.casefold() == plan.project.name.casefold():
@@ -341,6 +389,10 @@ def plan_from_request(payload: dict, existing: list[Project]) -> ProjectPlan:
         if other.resolved_path == plan.project.resolved_path:
             raise ValueError(f"{other.name} already saves to that folder")
     return plan
+
+
+def _optional_bool(value) -> bool | None:
+    return None if value is None else bool(value)
 
 
 def display_path(path: Path) -> str:
@@ -357,7 +409,10 @@ def plan_to_dict(plan: ProjectPlan) -> dict:
         "root": display_path(plan.root),
         "inbox": display_path(plan.project.resolved_path),
         "steps": [
-            {"path": display_path(s.path), "kind": s.kind, "exists": s.exists, "purpose": s.purpose}
+            {
+                "path": display_path(s.path), "kind": s.kind, "exists": s.exists,
+                "purpose": s.purpose, "key": s.key, "included": s.included,
+            }
             for s in plan.steps
         ],
         "notes": plan.notes,
@@ -366,10 +421,12 @@ def plan_to_dict(plan: ProjectPlan) -> dict:
 
 def apply_plan(plan: ProjectPlan) -> list[Path]:
     """Create what ``plan`` describes. Returns the files and folders created."""
-    created = [s.path for s in plan.steps if not s.exists and s.kind == "folder"]
+    created = [s.path for s in plan.included_steps if not s.exists and s.kind == "folder"]
     plan.project.resolved_path.mkdir(parents=True, exist_ok=True)
-    if plan.agent_files:
-        created += install_agent_files(plan.root, plan.project.name, plan.inbox or ".")
+    created += install_agent_files(
+        plan.root, plan.project.name, plan.inbox or ".",
+        instructions=plan.instructions, skill=plan.skill,
+    )
     return created
 
 
@@ -386,4 +443,5 @@ def filename_for(meeting, project: Project, title: str | None = None) -> str:
 
     name = title or meeting.title
     slug = slugify(name) if name else f"meeting-{started.strftime('%H%M')}"
-    return f"{started.strftime('%d-%m-%y')}-{slug}.md"
+    date = started.strftime("%y%m%d" if project.naming == "yymmdd" else "%d-%m-%y")
+    return f"{date}-{slug}.md"

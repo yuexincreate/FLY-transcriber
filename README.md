@@ -1,4 +1,4 @@
-# FLY — Faithful Logger of Yapping
+# FLY
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)

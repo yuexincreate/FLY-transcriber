@@ -1,9 +1,9 @@
 // Dashboard UI: Preact + htm, vendored so it runs offline with no build step.
 import { html, render, useEffect, useMemo, useRef, useState } from "./vendor/htm-preact-3.1.1.js";
 import {
-  BRAND, BRAND_TEXT, Avatar, Button, Empty, Field, FilingFields, Icon, IconButton, Logo, Pill,
+  BRAND, Avatar, Button, Empty, Field, FilingFields, Icon, IconButton, Logo, Pill,
   RunBar, Switch, Toasts, api, awaitsFiling, fmtDuration, speakerHue, speakerName, status,
-  useFilingForm, useToasts, PROCESS_BUSY_HINT, processMeeting, runBusy,
+  useFilingForm, useToasts, PROCESS_BUSY_HINT, processMeeting, runBusy, inApp, native,
 } from "./common.js";
 
 const POLL_MS = 1000;
@@ -45,14 +45,9 @@ async function copyTranscript(meeting, toast) {
 
 const Footer = ({ version }) => html`
   <footer class="footer">
-    <${Logo} size=${40} />
-    <div class="footer-name">${BRAND.name}</div>
-    <div class="footer-expansion">
-      ${BRAND.expansion.map((w) => Array.isArray(w)
-        ? html`<span><strong>${w[0]}</strong>${w[1]}</span>`
-        : html`<span class="filler">${w}</span>`)}
-    </div>
-    ${version && html`<div class="footer-version">${version === "dev" ? "dev build" : `v${version}`}</div>`}
+    <div class="footer-version">${version && (version === "dev" ? "dev build" : `v${version}`)}</div>
+    ${inApp && html`<${Button} variant="ghost" size="sm" class="footer-quit"
+      onClick=${() => native({ type: "quit" })}>Quit FLY<//>`}
   </footer>`;
 
 const RunStatus = ({ run }) => html`
@@ -89,7 +84,7 @@ const TopBar = ({ route, run, onToggle }) => {
   return html`
     <header class="topbar">
       <div class="topbar-inner">
-        <a class="brand" href="#/" title=${BRAND_TEXT} aria-label=${BRAND.name}>
+        <a class="brand" href="#/" title=${BRAND.name} aria-label=${BRAND.name}>
           <${Logo} />
         </a>
         <nav class="nav" role="tablist">
@@ -512,8 +507,14 @@ const basename = (path) => path.replace(/\/+$/, "").split("/").pop() || "";
 
 const NAMING = [
   ["vault", "28-09-26-title.md"],
+  ["yymmdd", "260928-title.md"],
   ["timestamp", "2026-09-28_1420_title.md"],
 ];
+const NAMING_HINTS = {
+  vault: "Day first, like a vault note.",
+  yymmdd: "Year first, so files sort by date.",
+  timestamp: "Sorts by recording time.",
+};
 const FRONTMATTER = [
   ["generic", "Generic"],
   ["obsidian", "Obsidian"],
@@ -544,8 +545,17 @@ const ProjectChoice = ({ onPick }) => html`
     </div>
   </div>`;
 
-/** The folder and its contents as they will be after adding, marked new or kept. */
-const PlanPreview = ({ plan, kind }) => {
+const STEP_LABELS = {
+  inbox: "Create the transcripts folder",
+  instructions: "Add CLAUDE.md",
+  skill: "Add the fly-summarise skill",
+};
+
+/**
+ * The folder and its contents as they will be after adding, marked new or kept.
+ * Steps with a ``key`` get a switch; a switched-off step stays listed, dimmed.
+ */
+const PlanPreview = ({ plan, kind, switches, onSwitch }) => {
   const rel = (path) => path.startsWith(plan.root + "/") ? path.slice(plan.root.length + 1) : path;
   const inside = plan.steps.filter((s) => s.path !== plan.root);
   return html`
@@ -558,15 +568,23 @@ const PlanPreview = ({ plan, kind }) => {
           <span class=${`plan-tag ${kind === "new" ? "plan-new" : ""}`}>${kind === "new" ? "New folder" : "Your folder"}</span>
         </li>
         ${inside.map((step) => html`
-          <li key=${step.path}>
+          <li key=${step.path} class=${step.included ? "" : "plan-off"}>
             <${Icon} name=${step.kind} />
             <div>
               <code>${rel(step.path)}${step.kind === "folder" ? "/" : ""}</code>
               <div class="plan-purpose">${step.purpose}</div>
             </div>
-            <span class=${`plan-tag ${step.exists ? "" : "plan-new"}`}>
-              ${step.exists ? (step.kind === "file" ? "Exists, kept as is" : "Exists") : "New"}
-            </span>
+            <div class="plan-side">
+              <span class=${`plan-tag ${step.included && !step.exists ? "plan-new" : ""}`}>
+                ${!step.included ? "Skipped"
+                  : step.exists ? (step.kind === "file" ? "Exists, kept as is" : "Exists") : "New"}
+              </span>
+              ${step.key && html`
+                <input type="checkbox" role="switch" class="switch switch-sm"
+                  aria-label=${STEP_LABELS[step.key] || step.key}
+                  checked=${switches[step.key]}
+                  onChange=${(e) => onSwitch(step.key, e.currentTarget.checked)} />`}
+            </div>
           </li>`)}
       </ul>
       ${plan.notes.map((n) => html`<p class="plan-note" key=${n}>${n}</p>`)}
@@ -607,7 +625,9 @@ const ProjectSetup = ({ kind, onBack, onDone, toast }) => {
   const [nameTouched, setNameTouched] = useState(false);
   const [folder, setFolder] = useState(isNew ? "~" : "");
   const [inbox, setInbox] = useState("meetings/_inbox");
-  const [agentFiles, setAgentFiles] = useState(true);
+  // One switch per optional step in the plan (keys match the steps' ``key``).
+  const [switches, setSwitches] = useState({ inbox: true, instructions: true, skill: true });
+  const setSwitch = (key, on) => setSwitches((prev) => ({ ...prev, [key]: on }));
   const [naming, setNaming] = useState("vault");
   const [frontmatter, setFrontmatter] = useState("generic");
   const [plan, setPlan] = useState(null);
@@ -618,7 +638,8 @@ const ProjectSetup = ({ kind, onBack, onDone, toast }) => {
   // An existing folder names the project until the user names it themselves.
   const effectiveName = nameTouched || isNew ? name : basename(folder);
   const request = {
-    kind, name: effectiveName, folder, inbox, agent_files: agentFiles, naming, frontmatter,
+    kind, name: effectiveName, folder, inbox, naming, frontmatter,
+    use_inbox: switches.inbox, instructions: switches.instructions, skill: switches.skill,
   };
   const key = JSON.stringify(request);
 
@@ -667,11 +688,8 @@ const ProjectSetup = ({ kind, onBack, onDone, toast }) => {
             <input class="input" value=${inbox} placeholder="meetings/_inbox" spellcheck="false"
               onInput=${(e) => setInbox(e.currentTarget.value)} />
           <//>
-          <${Switch} label="Add agent instructions"
-            hint="CLAUDE.md and the meeting skill, so an agent knows what to do with the transcripts. Existing files are never overwritten."
-            checked=${agentFiles} onChange=${setAgentFiles} />
           <div class="grid-2">
-            <${Field} label="File names" hint=${naming === "vault" ? "Day first, like a vault note." : "Sorts by recording time."}>
+            <${Field} label="File names" hint=${NAMING_HINTS[naming]}>
               <select class="input" value=${naming} onChange=${(e) => setNaming(e.currentTarget.value)}>
                 ${NAMING.map(([v, l]) => html`<option key=${v} value=${v}>${l}</option>`)}
               </select>
@@ -686,7 +704,7 @@ const ProjectSetup = ({ kind, onBack, onDone, toast }) => {
       </details>
 
       ${plan
-        ? html`<${PlanPreview} plan=${plan} kind=${kind} />`
+        ? html`<${PlanPreview} plan=${plan} kind=${kind} switches=${switches} onSwitch=${setSwitch} />`
         : problem && html`<div class="plan plan-problem">${problem}</div>`}
 
       <div class="dialog-foot">
@@ -1229,5 +1247,5 @@ function App() {
     <${Toasts} toasts=${toasts} />`;
 }
 
-document.title = `${BRAND.name} — ${BRAND_TEXT}`;
+document.title = BRAND.name;
 render(html`<${App} />`, document.getElementById("root"));

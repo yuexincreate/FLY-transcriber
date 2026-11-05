@@ -3,7 +3,7 @@
     uv run --with playwright python scripts/make_promo_gif.py
 
 Opens docs/how-it-works.html in Google Chrome (headless, via Playwright's
-``channel="chrome"``), keeps only the title slide's logo, name and tagline,
+``channel="chrome"``), keeps only the title slide's logo and name,
 pauses every CSS animation and steps them frame by frame, so the GIF matches
 the deck exactly whatever the machine's speed. ffmpeg joins the frames, the
 last one held before the loop. Needs ffmpeg on PATH.

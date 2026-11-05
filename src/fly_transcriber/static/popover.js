@@ -4,7 +4,7 @@
 // plain page.
 import { html, render, useEffect, useRef, useState } from "./vendor/htm-preact-3.1.1.js";
 import {
-  BRAND, BRAND_TEXT, Button, FilingFields, Icon, IconButton, Logo, Pill, RunBar, Toasts, api, awaitsFiling,
+  BRAND, Button, FilingFields, Icon, IconButton, Logo, Pill, RunBar, Toasts, api, awaitsFiling,
   PROCESS_BUSY_HINT, fmtDuration, inApp, native, processMeeting, runBusy, status, useFilingForm, useToasts,
 } from "./common.js";
 
@@ -79,7 +79,6 @@ const ListView = ({ state, run, onFile, onProcess, onToggle }) => {
     <header class="phead">
       <span class="pbrand">
         <${Logo} size=${22} /><span>${BRAND.name}</span>
-        <span class="pbrand-tagline">${BRAND_TEXT}</span>
       </span>
       <${IconButton} icon="sliders" label="Settings" onClick=${() => open("#/settings")} />
     </header>
@@ -123,6 +122,7 @@ const FilingView = ({ meeting, projects, onDone, toast }) => {
         <button type="button" class="pback" onClick=${onDone}>
           <${Icon} name="back" size=${14} /> Recent
         </button>
+        ${inApp && html`<${Button} variant="ghost" size="sm" onClick=${() => native({ type: "quit" })}>Quit<//>`}
       </header>
       <div>
         <h2>Save recording</h2>

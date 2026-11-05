@@ -295,7 +295,7 @@ fi
 logo
 cat <<'EOF'
 
-Installing FLY, the Faithful Logger of Yapping.
+Installing FLY.
 
 FLY records your meetings and turns them into transcripts that show who said
 what. Everything happens on this Mac: FLY uses local AI models for speech

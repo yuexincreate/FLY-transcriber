@@ -463,6 +463,14 @@ def test_title_drives_filename(tmp_path):
     assert result.path.name == "28-09-26-acme-ux-review.md"
 
 
+def test_yymmdd_naming_puts_the_year_first(tmp_path):
+    d = make_meeting(tmp_path / "src", transcript=TRANSCRIPT_DIARIZED, summary=None)
+    project = Project(name="Acme", path=str(tmp_path / "inbox"), naming="yymmdd")
+    result = file_meeting(parse_meeting_dir(d), project, title="Acme UX Review")
+    assert result.path.name == "260928-acme-ux-review.md"
+    assert Project.from_dict(project.to_dict()).naming == "yymmdd"
+
+
 def test_untitled_meeting_falls_back_to_time(tmp_path):
     """A generic slug would collide across meetings on the same day."""
     d = tmp_path / "src" / "2026-09-28_1420"
@@ -744,8 +752,52 @@ def test_plan_warns_when_kept_claude_md_cannot_know_custom_inbox(tmp_path):
 
 def test_plan_existing_folder_without_inbox_or_agent_files(tmp_path):
     plan = plan_project("Vault", tmp_path, new=False, inbox="", agent_files=False)
-    assert plan.steps == []
+    assert plan.included_steps == []
+    assert [s.key for s in plan.steps] == ["instructions", "skill"]  # offered, switched off
     assert plan.project.path == str(tmp_path)
+    assert apply_plan(plan) == []
+    assert not (tmp_path / "CLAUDE.md").exists()
+
+
+def test_plan_without_project_skill_writes_only_claude_md(tmp_path):
+    plan = plan_project("Acme", tmp_path, new=True, skill=False)
+    root = tmp_path / "acme"
+    skill = next(s for s in plan.steps if s.key == "skill")
+    assert not skill.included
+    created = apply_plan(plan)
+    assert (root / "CLAUDE.md").exists()
+    assert not (root / SKILL_RELPATH).exists()
+    assert root / SKILL_RELPATH not in created
+
+
+def test_plan_without_claude_md_writes_only_the_skill(tmp_path):
+    plan = plan_project("Acme", tmp_path, new=True, instructions=False)
+    apply_plan(plan)
+    assert not (tmp_path / "acme" / "CLAUDE.md").exists()
+    assert (tmp_path / "acme" / SKILL_RELPATH).exists()
+
+
+def test_plan_without_inbox_saves_into_the_project_folder(tmp_path):
+    plan = plan_project("Acme", tmp_path, new=True, use_inbox=False)
+    root = tmp_path / "acme"
+    inbox = next(s for s in plan.steps if s.key == "inbox")
+    assert (inbox.path, inbox.included) == (root / DEFAULT_INBOX, False)
+    assert plan.project.path == str(root)
+    apply_plan(plan)
+    assert not (root / DEFAULT_INBOX).exists()
+    assert "`./`" in (root / "CLAUDE.md").read_text(encoding="utf-8")
+
+
+def test_plan_from_request_reads_the_step_switches(tmp_path):
+    plan = plan_from_request(
+        {"kind": "new", "name": "Acme", "folder": str(tmp_path),
+         "use_inbox": False, "instructions": True, "skill": False},
+        [],
+    )
+    assert {s.key: s.included for s in plan.steps if s.key} == {
+        "inbox": False, "instructions": True, "skill": False,
+    }
+    assert plan_to_dict(plan)["steps"][1]["included"] is False
 
 
 @pytest.mark.parametrize("inbox", ["../elsewhere", "/abs", "~/x", "a/../../b"])
