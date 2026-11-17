@@ -58,6 +58,15 @@ MODEL_SHA256="5ce2bfa9a938dc132cec1172592d65173cbb8f444ea1e4133f10f9391de155be  
 325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f  plda/xvec_transform.npz"
 
 main() {
+# Started in Intel mode (Rosetta) on an Apple Silicon Mac -- FLY's in-app
+# updater up to v0.7.7 did this when FLY itself ran translated -- start over
+# natively. Piped into sh, the script can't re-read itself, so fetch it again.
+# Everything below then runs as arm64 and installs arm64 tools.
+if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ] && [ -z "${FLY_NATIVE_RETRY:-}" ]; then
+  echo "Running in Intel mode (Rosetta); restarting the installer natively." >&2
+  FLY_NATIVE_RETRY=1 exec /usr/bin/arch -arm64 /bin/sh -c \
+    'curl -fsSL "$0" | sh -s -- "$@"' "${FLY_INSTALL_URL:-$REPO/raw/main/install.sh}" "$@"
+fi
 login_item=1
 warmup=ask
 action=install
