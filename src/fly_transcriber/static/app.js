@@ -1,9 +1,9 @@
 // Dashboard UI: Preact + htm, vendored so it runs offline with no build step.
 import { html, render, useEffect, useMemo, useRef, useState } from "./vendor/htm-preact-3.1.1.js";
 import {
-  BRAND, Avatar, Button, Empty, Field, FilingFields, Icon, IconButton, Logo, Pill,
+  BRAND, Avatar, Button, EditableTitle, Empty, Field, FilingFields, Icon, IconButton, Logo, Pill,
   RunBar, Switch, Toasts, api, awaitsFiling, fmtDuration, speakerHue, speakerName, status,
-  useFilingForm, useToasts, PROCESS_BUSY_HINT, processMeeting, runBusy, inApp, native,
+  UNTITLED, useFilingForm, useToasts, PROCESS_BUSY_HINT, processMeeting, runBusy, inApp, native,
 } from "./common.js";
 
 const POLL_MS = 1000;
@@ -123,11 +123,11 @@ const RecordingRow = ({ meeting, onFile, onDelete, busy, toast, refresh, selecti
       onClick=${selecting ? toggle : open}>
       ${selecting && html`
         <input type="checkbox" class="row-check" checked=${selected} disabled=${!selectable}
-          aria-label=${`Select ${meeting.title || "Untitled recording"}${meeting.when ? `, ${meeting.when}` : ""}`}
+          aria-label=${`Select ${meeting.title || UNTITLED}${meeting.when ? `, ${meeting.when}` : ""}`}
           title=${selectable ? "" : "Still being processed"}
           onClick=${(e) => e.stopPropagation()} onChange=${toggle} />`}
       <div class="row-main">
-        <div class="row-title">${meeting.title || "Untitled recording"}</div>
+        <${EditableTitle} meeting=${meeting} toast=${toast} refresh=${refresh} class="row-title" />
         <div class="row-meta">
           ${meta.filter(Boolean).join(" · ")}
           ${meeting.filed.length > 0 && html`
@@ -201,7 +201,7 @@ const DeleteDialog = ({ meetings, onClose, onDeleted, toast }) => {
         </div>
         ${one
           ? html`<p>
-              <strong>${one.title || "Untitled recording"}</strong>${one.when ? ` (${one.when})` : ""}${" "}
+              <strong>${one.title || UNTITLED}</strong>${one.when ? ` (${one.when})` : ""}${" "}
               and its transcript${one.has_audio ? " and audio" : ""} move to the Trash.
               ${filed ? " Notes already saved to your projects are kept." : ""}
             </p>`
@@ -211,7 +211,7 @@ const DeleteDialog = ({ meetings, onClose, onDeleted, toast }) => {
             </p>
             <ul class="delete-list">
               ${left.map((m) => html`<li key=${m.name}>
-                <strong>${m.title || "Untitled recording"}</strong>${m.when ? ` · ${m.when}` : ""}
+                <strong>${m.title || UNTITLED}</strong>${m.when ? ` · ${m.when}` : ""}
               </li>`)}
             </ul>`}
         ${error && html`<div class="error-text">${error}</div>`}
@@ -434,7 +434,7 @@ const RecordingView = ({ meeting, onFile, toast, refresh, busy }) => {
       <div class="page-head">
         <div>
           <div class="title-line">
-            <h1>${meeting.title || "Untitled recording"}</h1>
+            <${EditableTitle} as="h1" meeting=${meeting} toast=${toast} refresh=${refresh} />
             <${Pill} tone=${st.tone}>${st.label}<//>
           </div>
           <p class="subtle">${[meeting.when, meeting.duration && fmtDuration(meeting.duration)].filter(Boolean).join(" · ")}</p>

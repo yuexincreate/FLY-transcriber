@@ -394,6 +394,18 @@ main { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; padding: 32px 24p
 .turn-time { font: 12px var(--mono); color: var(--text-3); }
 .turn-body p { line-height: 1.6; }
 .turn-body p + p { margin-top: 6px; }
+/* A recording title with its rename pencil (lists and the recording page). */
+.title-group { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.title-group > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-group > .untitled { color: var(--text-3); }
+.title-group .btn-icon { flex: none; width: 22px; height: 22px; opacity: 0.4; }
+.row:hover .title-group .btn-icon, .prow:hover .title-group .btn-icon { opacity: 0.7; }
+.title-group .btn-icon:hover, .title-group .btn-icon:focus-visible { opacity: 1; }
+.page-head .title-group .btn-icon { width: 28px; height: 28px; }
+.title-edit { display: flex; align-items: center; gap: 2px; min-width: 0; cursor: auto; }
+.title-edit .input-sm { flex: 1; min-width: 0; height: 26px; padding: 2px 8px; }
+.page-head .title-edit .input-sm { height: 34px; font-size: 18px; font-weight: 600; min-width: 280px; }
+
 .turn-speaker-group { display: inline-flex; align-items: center; gap: 2px; }
 .turn-speaker-group .btn-icon { width: 22px; height: 22px; opacity: 0.5; }
 .turn-speaker-group .btn-icon:hover { opacity: 1; }

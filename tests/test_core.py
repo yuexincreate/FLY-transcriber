@@ -1367,6 +1367,7 @@ def _stub_api(**overrides):
         check_update=overrides.get("check_update"),
         apply_update=overrides.get("apply_update"),
         rename_speaker=overrides.get("rename_speaker"),
+        rename_meeting=overrides.get("rename_meeting"),
     )
     return api, calls
 
@@ -1488,6 +1489,24 @@ def test_server_routes_rename_speaker_requests():
         )
         assert json.loads(urllib.request.urlopen(req).read()) == {"speaker_names": {"SPEAKER_00": "Sam"}}
         assert calls["rename"] == ("m1", "SPEAKER_00", "Sam")
+    finally:
+        server.shutdown()
+
+
+def test_server_routes_meeting_title_requests():
+    calls = {}
+    api, _ = _stub_api(rename_meeting=lambda meeting, title: (
+        calls.setdefault("title", (meeting, title)) and {"title": title}
+    ))
+    base, server = _client(api)
+    try:
+        req = urllib.request.Request(
+            base + "/api/title",
+            data=json.dumps({"meeting": "m1", "title": "Acme weekly sync"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        assert json.loads(urllib.request.urlopen(req).read()) == {"title": "Acme weekly sync"}
+        assert calls["title"] == ("m1", "Acme weekly sync")
     finally:
         server.shutdown()
 

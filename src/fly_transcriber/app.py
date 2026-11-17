@@ -342,6 +342,7 @@ class MeetingRecorderApp:
             check_update=self._api_check_update,
             apply_update=self._api_apply_update,
             rename_speaker=self._api_rename_speaker,
+            rename_meeting=self._api_rename_meeting,
         )
         try:
             return serve_in_background(api)
@@ -528,6 +529,20 @@ class MeetingRecorderApp:
             names.pop(speaker, None)
         meeting_state.update(name, speaker_names=names)
         return {"speaker_names": names}
+
+    def _api_rename_meeting(self, name: str, title: str) -> dict:
+        """Set a recording's title, from the pencil next to it in the lists.
+
+        Any time, even while it is still recording: the title lives in the
+        ledger, not in ownscribe's folder. Same field the save form's title
+        edits, so like a speaker name it reaches an already saved copy only
+        when the meeting is saved again. An empty title clears it.
+        """
+        self._meeting_directory(name)
+        title = " ".join(title.split())
+        meeting_state.update(name, title=title)
+        self._needs_refresh = True
+        return {"title": title}
 
     def _api_show(self) -> dict:
         """A second launch asks the running instance to come forward."""

@@ -62,6 +62,7 @@ class Api:
         check_update: Callable[[], dict] | None = None,
         apply_update: Callable[[], dict] | None = None,
         rename_speaker: Callable[[str, str, str], dict] | None = None,
+        rename_meeting: Callable[[str, str], dict] | None = None,
         process: Callable[[str], dict] | None = None,
     ) -> None:
         self.snapshot = snapshot
@@ -83,6 +84,7 @@ class Api:
         self.check_update = check_update or _unsupported
         self.apply_update = apply_update or _unsupported
         self.rename_speaker = rename_speaker or _unsupported
+        self.rename_meeting = rename_meeting or _unsupported
 
 
 def _unsupported(*_args) -> dict:
@@ -226,6 +228,8 @@ class _Handler(BaseHTTPRequestHandler):
                 result = self.api.rename_speaker(
                     payload.get("meeting", ""), payload.get("speaker", ""), payload.get("name", ""),
                 )
+            elif path == "/api/title":
+                result = self.api.rename_meeting(payload.get("meeting", ""), str(payload.get("title", "")))
             else:
                 self._json({"error": "not found"}, 404)
                 return

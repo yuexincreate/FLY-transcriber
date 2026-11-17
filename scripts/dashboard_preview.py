@@ -36,7 +36,7 @@ def meeting(name, title, when, duration, speakers, filed=(), processing=False, t
             unprocessed=False):
     entry = STATE.get(name, {})
     return {
-        "name": name, "title": entry.get("title", title), "when": when, "duration": duration,
+        "name": name, "title": entry.get("title") or title, "when": when, "duration": duration,
         "has_transcript": transcript, "has_audio": True, "processing": processing,
         "needs_processing": unprocessed,
         "speakers": speakers,
@@ -145,6 +145,12 @@ def rename_speaker(name, speaker, new_name):
     return {"speaker_names": names}
 
 
+def rename_meeting(name, title):
+    title = " ".join(title.split())
+    STATE[name] = {**STATE.get(name, {}), "title": title}
+    return {"title": title}
+
+
 if __name__ == "__main__":
     api = Api(snapshot=snapshot, file_meeting=file_meeting, save_settings=lambda p: {"ok": True},
               forget=lambda n: {"ok": True}, meeting_detail=detail, reveal=lambda n: {"ok": True},
@@ -155,6 +161,7 @@ if __name__ == "__main__":
               # No native picker here: pretend the user chose ~/Documents.
               choose_folder=lambda p: {"path": "~/Documents"},
               check_update=check_update, apply_update=apply_update, rename_speaker=rename_speaker,
+              rename_meeting=rename_meeting,
               process=lambda n: {"ok": True})
     print(f"http://127.0.0.1:{PORT}/")
     make_server(api, PORT).serve_forever()

@@ -1,5 +1,5 @@
 // Shared by the dashboard (app.js) and the menubar popover (popover.js).
-import { html, useCallback, useState } from "./vendor/htm-preact-3.1.1.js";
+import { html, useCallback, useEffect, useRef, useState } from "./vendor/htm-preact-3.1.1.js";
 
 const SPEAKER_HUES = 6;
 
@@ -113,6 +113,62 @@ export const IconButton = ({ icon, label, ...props }) => html`
   <button type="button" class="btn btn-ghost btn-icon" title=${label} aria-label=${label} ...${props}>
     <${Icon} name=${icon} />
   </button>`;
+
+export const UNTITLED = "Untitled recording";
+
+/**
+ * A recording's title with a pencil beside it; the pencil turns it into an
+ * inline field (Enter saves, Escape cancels, empty clears). Works at any time,
+ * even mid-recording: the title is kept in FLY's ledger, not the recording.
+ * Clicks stay inside, so it can sit in a row that opens on click.
+ */
+export const EditableTitle = ({ meeting, toast, refresh, class: cls = "", as = "span" }) => {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef();
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+
+  const title = meeting.title || UNTITLED;
+  const swallow = (e) => e.stopPropagation();
+  const start = (e) => { swallow(e); setValue(meeting.title || ""); setEditing(true); };
+  const cancel = () => setEditing(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api("/api/title", { meeting: meeting.name, title: value });
+      await refresh?.();
+      setEditing(false);
+    } catch (err) {
+      toast?.(err.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const onKeyDown = (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  };
+
+  if (editing) {
+    return html`
+      <span class="title-edit" onClick=${swallow}>
+        <input class="input input-sm" ref=${inputRef} value=${value} disabled=${saving}
+          placeholder=${UNTITLED} aria-label="Recording title" maxlength="200"
+          onInput=${(e) => setValue(e.currentTarget.value)} onKeyDown=${onKeyDown} />
+        <${IconButton} icon="check" label="Save title" disabled=${saving}
+          onClick=${(e) => { swallow(e); save(); }} />
+        <${IconButton} icon="close" label="Cancel" disabled=${saving}
+          onClick=${(e) => { swallow(e); cancel(); }} />
+      </span>`;
+  }
+  return html`
+    <span class="title-group">
+      <${as} class=${`${cls} ${meeting.title ? "" : "untitled"}`}>${title}<//>
+      <${IconButton} icon="pencil" label="Rename recording" onClick=${start} />
+    </span>`;
+};
 
 export const Pill = ({ tone, children }) => html`<span class=${`pill pill-${tone}`}>${children}</span>`;
 

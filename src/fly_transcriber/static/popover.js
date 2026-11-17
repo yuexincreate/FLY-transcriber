@@ -4,7 +4,7 @@
 // plain page.
 import { html, render, useEffect, useRef, useState } from "./vendor/htm-preact-3.1.1.js";
 import {
-  BRAND, Button, FilingFields, Icon, IconButton, Logo, Pill, RunBar, Toasts, api, awaitsFiling,
+  BRAND, Button, EditableTitle, FilingFields, Icon, IconButton, Logo, Pill, RunBar, Toasts, api, awaitsFiling,
   PROCESS_BUSY_HINT, fmtDuration, inApp, native, processMeeting, runBusy, status, useFilingForm, useToasts,
 } from "./common.js";
 
@@ -36,7 +36,7 @@ const RecordControl = ({ run, onToggle }) => {
 
 // -- list -------------------------------------------------------------------
 
-const Row = ({ meeting, onFile, onProcess, busy }) => {
+const Row = ({ meeting, onFile, onProcess, busy, toast, refresh }) => {
   const st = status(meeting);
   const waiting = awaitsFiling(meeting);
   const projects = [...new Set(meeting.filed.map((f) => f.project))];
@@ -50,26 +50,34 @@ const Row = ({ meeting, onFile, onProcess, busy }) => {
       : meeting.has_transcript && !meeting.processing
       ? () => open(`#/r/${encodeURIComponent(meeting.name)}`)
       : null;
+  // A div acting as a button, not a <button>: the title's pencil and field
+  // live inside it, and a button can't contain either.
+  const onKeyDown = (e) => {
+    if (!action || e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); action(); }
+  };
 
   return html`
     <li>
-      <button type="button" class="prow" disabled=${!action} onClick=${action}
+      <div class=${`prow ${action ? "" : "prow-inert"}`} role=${action ? "button" : undefined}
+        tabindex=${action ? 0 : undefined}
+        onClick=${action || undefined} onKeyDown=${onKeyDown}
         title=${waiting ? "Save this recording"
           : unprocessed ? (busy ? PROCESS_BUSY_HINT : "Transcribe this recording")
           : action ? "Open transcript" : ""}>
         <span class="prow-main">
-          <span class="prow-title">${meeting.title || "Untitled recording"}</span>
+          <${EditableTitle} meeting=${meeting} toast=${toast} refresh=${refresh} class="prow-title" />
           <span class="prow-meta">
             ${meta}${projects.length > 0 && html`<span class="prow-filed"> → ${projects.join(", ")}</span>`}
           </span>
         </span>
         <${Pill} tone=${st.tone}>${waiting ? "Save" : unprocessed ? "Process" : st.label}<//>
-        ${action && html`<span class="prow-chevron"><${Icon} name="chevron" size=${14} /></span>`}
-      </button>
+        ${action ? html`<span class="prow-chevron"><${Icon} name="chevron" size=${14} /></span>` : html`<span></span>`}
+      </div>
     </li>`;
 };
 
-const ListView = ({ state, run, onFile, onProcess, onToggle }) => {
+const ListView = ({ state, run, onFile, onProcess, onToggle, toast, refresh }) => {
   const meetings = state.meetings.slice(0, LIMIT);
   const waiting = state.meetings.filter(awaitsFiling).length;
   const unprocessed = state.meetings.filter((m) => m.needs_processing).length;
@@ -93,7 +101,8 @@ const ListView = ({ state, run, onFile, onProcess, onToggle }) => {
       </div>
       ${meetings.length
         ? html`<ul class="plist">${meetings.map((m) => html`<${Row} key=${m.name} meeting=${m}
-            onFile=${onFile} onProcess=${onProcess} busy=${runBusy(run)} />`)}</ul>`
+            onFile=${onFile} onProcess=${onProcess} busy=${runBusy(run)}
+            toast=${toast} refresh=${refresh} />`)}</ul>`
         : html`<p class="pempty">No recordings yet. Finished recordings show up here.</p>`}
     </section>
 
@@ -201,7 +210,7 @@ function App() {
         : meeting
           ? html`<${FilingView} key=${filing} meeting=${meeting} projects=${state.projects}
               toast=${toast} onDone=${() => setFiling(null)} />`
-          : html`<${ListView} state=${state} run=${run} onToggle=${toggle}
+          : html`<${ListView} state=${state} run=${run} onToggle=${toggle} toast=${toast} refresh=${refresh}
               onFile=${(m) => setFiling(m.name)}
               onProcess=${(m) => processMeeting(m, toast, refresh)} />`}
     </div>
